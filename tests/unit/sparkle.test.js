@@ -6,15 +6,15 @@
  * Cleaned up automatically when integration tests run
  */
 
-import { Sparkle } from '../src/sparkle-class.js';
-import { unit_test_setup } from './test-helpers.js';
+import { Sparkle } from '../../src/sparkle-class.js';
+import { unit_test_setup } from '../helpers/test-helpers.js';
 
 // Current sparkle instance (recreated for each test)
 let sparkle = null;
 
 // Test setup using shared infrastructure
-async function setupTest() {
-  const testDir = await unit_test_setup();
+async function setupTest(testName = 'unknown') {
+  const testDir = await unit_test_setup(import.meta.url, testName);
   sparkle = new Sparkle(testDir);
   await sparkle.start();
   return testDir;

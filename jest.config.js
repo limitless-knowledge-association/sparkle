@@ -6,23 +6,23 @@
 
 export default {
   testEnvironment: 'node',
-  testTimeout: 30000,
-  transform: {}, // ES modules native support
+  transform: {},
 
   // Run tests in parallel, but limit integration tests
   projects: [
     {
       displayName: 'unit',
+      testEnvironment: 'node',
       testMatch: ['<rootDir>/tests/unit/**/*.test.js'],
-      testTimeout: 10000,
+      transform: {},
       maxWorkers: '100%', // Parallel-safe, can run all at once
     },
     {
       displayName: 'integration',
+      testEnvironment: 'node',
       testMatch: ['<rootDir>/tests/integration/**/*.test.js'],
-      testTimeout: 60000,
+      transform: {},
       maxWorkers: 3, // Limit concurrent git operations
-      maxConcurrency: 3,
     }
   ],
 

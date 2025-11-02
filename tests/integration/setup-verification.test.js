@@ -33,7 +33,7 @@ import {
   commitAndPush,
   getLatestOriginCommit,
   sparkleBranchExistsInOrigin
-} from '../src/gitBranchOps.js';
+} from '../../src/gitBranchOps.js';
 
 /**
  * Setup first clone for Sparkle - mirrors what daemon does for new install

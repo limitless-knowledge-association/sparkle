@@ -21,7 +21,7 @@ import {
   stopDaemon,
   startLogServer,
   sleep
-} from './test-helpers.js';
+} from '../helpers/test-helpers.js';
 
 // Test infrastructure
 class TestRunner {

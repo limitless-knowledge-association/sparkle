@@ -11,20 +11,20 @@ import { promisify } from 'util';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
-import { unit_test_setup } from './test-helpers.js';
-import { Sparkle } from '../src/sparkle-class.js';
+import { unit_test_setup } from '../helpers/test-helpers.js';
+import { Sparkle } from '../../src/sparkle-class.js';
 
 const execAsync = promisify(exec);
 
 // Path to CLI tool
 // Use fileURLToPath to ensure Windows doesn't fail
-const CLI_PATH = fileURLToPath(new URL('../bin/sparkle.js', import.meta.url));
+const CLI_PATH = fileURLToPath(new URL('../../bin/sparkle.js', import.meta.url));
 
 /**
  * Setup test environment with Sparkle data and sample items
  */
-async function setupTestData() {
-  const testDir = await unit_test_setup();
+async function setupTestData(testName = 'unknown') {
+  const testDir = await unit_test_setup(import.meta.url, testName);
   const sparkle = new Sparkle(testDir);
   await sparkle.start();
 

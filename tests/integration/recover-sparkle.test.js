@@ -18,7 +18,7 @@ import {
   stopDaemon,
   startLogServer,
   sleep
-} from './test-helpers.js';
+} from '../helpers/test-helpers.js';
 
 const execAsync = promisify(exec);
 

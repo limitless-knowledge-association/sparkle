@@ -5,16 +5,16 @@
  * Tests the derived data store functionality
  */
 
-import * as sparkle from '../src/sparkle.js';
-import * as aggregateManager from '../src/aggregateManager.js';
-import { unit_test_setup } from './test-helpers.js';
+import * as sparkle from '../../src/sparkle.js';
+import * as aggregateManager from '../../src/aggregateManager.js';
+import { unit_test_setup } from '../helpers/test-helpers.js';
 import { existsSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 
 // Test setup
-async function setupTest() {
-  const testDir = await unit_test_setup();
+async function setupTest(testName = 'unknown') {
+  const testDir = await unit_test_setup(import.meta.url, testName);
   sparkle.setBaseDirectory(testDir);
 
   // Inject the real aggregate manager
