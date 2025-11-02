@@ -70,7 +70,7 @@ class ItemCreatorModal {
     this.formElement.addEventListener('submit', (e) => this.handleSubmit(e));
 
     // Close button
-    const closeBtn = this.element.querySelector('.item-creator-close');
+    const closeBtn = this.element.querySelector('.sparkle-modal-close');
     closeBtn.addEventListener('click', () => this.close());
 
     // Cancel button
