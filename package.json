@@ -5,11 +5,13 @@
   "type": "module",
   "main": "src/sparkle.js",
   "scripts": {
-    "test": "node tests/sparkle.test.js && node tests/listFilter.test.js && node tests/sparkle-cli.test.js",
-    "pretest:integration": "node bin/bake-version.js",
-    "test:integration": "node tests/integration-test.js",
+    "test": "jest",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration",
+    "test:watch": "jest --watch --selectProjects unit",
+    "test:coverage": "jest --coverage",
+    "test:legacy": "node tests/unit/sparkle.test.js && node tests/unit/listFilter.test.js && node tests/unit/sparkle-cli.test.js",
     "test:cleanup": "node bin/test-cleanup.js",
-    "test:all": "npm run test && npm run test:integration",
     "release": "npm version patch && npm run pack",
     "release:minor": "npm version minor && npm run pack",
     "release:major": "npm version major && npm run pack",
@@ -41,6 +43,7 @@
     "LICENSE"
   ],
   "devDependencies": {
+    "jest": "^29.7.0",
     "sparkle": "file:sparkle-1.0.176.tgz"
   },
   "sparkle_config": {
