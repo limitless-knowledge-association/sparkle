@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sparkle Configuration</title>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    /* Configuration page-specific styles - override base for unique design */
+    body {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 600px;
+      width: 100%;
+      padding: 40px;
+    }
+
+    h1 {
+      color: #333;
+      font-size: 32px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .subtitle {
+      color: #666;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .help-text {
+      color: #666;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    input[type="text"] {
+      padding: 12px;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 6px;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .checkbox-group label {
+      margin: 0;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .button-group {
+      margin-top: 30px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px;
+      font-size: 16px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .message {
+      display: none;
+      white-space: pre-line;
+      font-family: monospace;
+      line-height: 1.6;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✨ Sparkle Configuration</h1>
+    <p class="subtitle">Set up Sparkle for this repository</p>
+
+    <div id="message" class="message"></div>
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p style="margin-top: 10px; color: #666;">Initializing Sparkle...</p>
+    </div>
+
+    <form id="configForm">
+      <div class="form-group">
+        <label for="git_branch">Git Branch Name</label>
+        <input
+          type="text"
+          id="git_branch"
+          name="git_branch"
+          value="sparkle"
+          required
+          pattern="[a-zA-Z0-9_\-/]+"
+        />
+        <div class="help-text">Name of the dedicated git branch for Sparkle data</div>
+      </div>
+
+      <div class="form-group">
+        <label for="directory">Directory Path</label>
+        <input
+          type="text"
+          id="directory"
+          name="directory"
+          value="sparkle-data"
+          required
+        />
+        <div class="help-text">Relative path within the Sparkle branch (e.g., "sparkle-data")</div>
+      </div>
+
+      <div class="form-group">
+        <label for="worktree_path">Worktree Path</label>
+        <input
+          type="text"
+          id="worktree_path"
+          name="worktree_path"
+          value=".sparkle-worktree"
+          required
+        />
+        <div class="help-text">Relative path for the git worktree directory (e.g., ".sparkle-worktree")</div>
+      </div>
+
+      <div class="button-group">
+        <button type="submit" class="btn-primary">Initialize Sparkle</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('configForm');
+    const messageDiv = document.getElementById('message');
+    const loadingDiv = document.getElementById('loading');
+
+    function showMessage(text, type) {
+      messageDiv.textContent = text;
+      messageDiv.className = `message ${type}`;
+      messageDiv.style.display = 'block';
+    }
+
+    function hideMessage() {
+      messageDiv.style.display = 'none';
+    }
+
+    function showLoading() {
+      loadingDiv.style.display = 'block';
+      form.style.display = 'none';
+    }
+
+    function hideLoading() {
+      loadingDiv.style.display = 'none';
+      form.style.display = 'block';
+    }
+
+    // Check if Sparkle is installed as regular dependency and show warning
+    async function checkDependencyWarning() {
+      try {
+        const response = await fetch('/api/checkDependency');
+        const data = await response.json();
+
+        if (data.isRegularDependency && !data.isDevDependency) {
+          const packageSpec = data.packageSpec || 'sparkle-<version>.tgz';
+          showMessage(`⚠️ Sparkle is installed as a regular dependency. To fix this, close this window and run:\n\nnpm uninstall sparkle\nnpm install --save-dev ${packageSpec}\n\nThen complete the configuration when the window reopens.`, 'info');
+        }
+      } catch (error) {
+        // Silently ignore if check fails
+      }
+    }
+
+    // Check on page load
+    checkDependencyWarning();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hideMessage();
+
+      const formData = new FormData(form);
+      const data = {
+        git_branch: formData.get('git_branch').trim(),
+        directory: formData.get('directory').trim(),
+        worktree_path: formData.get('worktree_path').trim(),
+        add_sparkle_script: formData.has('add_sparkle_script')
+      };
+
+      // Validation
+      if (!data.git_branch || !data.directory || !data.worktree_path) {
+        showMessage('Please fill in all required fields', 'error');
+        return;
+      }
+
+      if (data.directory.startsWith('/') || data.directory.includes('..')) {
+        showMessage('Directory must be a relative path without ".."', 'error');
+        return;
+      }
+
+      if (data.worktree_path.startsWith('/') || data.worktree_path.includes('..')) {
+        showMessage('Worktree path must be a relative path without ".."', 'error');
+        return;
+      }
+
+      showLoading();
+
+      try {
+        const response = await fetch('/api/configure', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        hideLoading();
+
+        if (response.ok) {
+          if (result.postinstall) {
+            // Postinstall mode - agent will shut down
+            showMessage(result.message, 'success');
+            form.innerHTML = `
+              <div style="margin-top: 20px; padding: 20px; background: #f0f8ff; border-radius: 6px; border: 2px solid #667eea;">
+                <h3 style="margin-top: 0; color: #667eea;">✨ Setup Complete!</h3>
+                <p style="margin: 10px 0;">To use Sparkle, run:</p>
+                <pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto;"><code>npx sparkle browser</code></pre>
+                <p style="margin: 10px 0 0 0; font-size: 13px; color: #666;">You can close this window now.</p>
+              </div>
+            `;
+          } else {
+            // Normal mode - continue to operations
+            showMessage(result.message + ' Click the button below to continue.', 'success');
+            form.innerHTML = `
+              <div class="button-group">
+                <button type="button" class="btn-primary" onclick="window.location.href='/'">
+                  Continue to Sparkle
+                </button>
+              </div>
+            `;
+          }
+        } else {
+          showMessage(`Error: ${result.error}`, 'error');
+        }
+      } catch (error) {
+        hideLoading();
+        showMessage(`Network error: ${error.message}`, 'error');
+      }
+    });
+  </script>
+</body>
+</html>

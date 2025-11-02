@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="sparkle-view" content="primary" data-view-name="Tree View">
+  <title>Sparkle - Tree View</title>
+  <style id="injected-common-css"></style>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    /* Page layout for scrollable tree container */
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #treeContainer {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* Tree View-specific styles */
+    .tree-container {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .tree-node {
+      padding: 4px 0;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+
+    .tree-node:hover .node-content {
+      background: var(--bg-hover);
+      border-radius: 4px;
+    }
+
+    .node-content {
+      padding: 2px 4px;
+      display: inline-block;
+      transition: background 0.15s;
+    }
+
+    .node-icon {
+      display: inline-block;
+      width: 16px;
+      text-align: center;
+      margin-right: 12px;
+      color: #667eea;
+      cursor: pointer;
+    }
+
+    .node-icon:hover {
+      color: #764ba2;
+      font-weight: bold;
+    }
+
+    .node-details {
+      cursor: pointer;
+    }
+
+    .node-details:hover {
+      text-decoration: underline;
+    }
+
+    .node-relation {
+      color: #764ba2;
+      font-style: italic;
+      margin-right: 6px;
+    }
+
+    .node-itemid {
+      color: #667eea;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .node-tagline {
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+<body>
+  <!-- Header and overlay will be injected by sparkle-common.js -->
+
+  <div class="container">
+    <div class="section">
+      <h2>Dependency Tree</h2>
+      <div id="treeContainer" class="tree-container">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <div>Loading tree...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script type="module">
+    import { DagTreeModel } from './dagTreeModel.js';
+    import { initializeHeader, connectToServer as commonConnectToServer, loadBranchStatus, loadVersion, apiCall, getCommonCSS, subscribeToEvent, frontendLog } from '../public/sparkle-common.js';
+    import { ConfigurationSettings } from '../public/ConfigurationSettings.js';
+    import { initializeItemEditor, openItemEditor } from '../public/item-editor.js';
+    import { initializeDependencyManager } from '../public/dependency-manager.js';
+    // Note: audit-trail.js only exports openAuditTrail (opens in new window, no initialization needed)
+
+    const dagModels = new Map(); // itemId -> DagTreeModel
+    let rootItems = []; // [{itemId, hasChildren, expanded}, ...]
+
+    // Configuration settings instance
+    const configSettings = new ConfigurationSettings();
+
+    // Make openItemEditor available globally for onclick handlers
+    window.openItemEditor = openItemEditor;
+
+    // Inject common CSS
+    document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+    // Initialize header with navigation dropdown
+    initializeHeader({
+      usePrimaryViewsDropdown: true,
+      onServerConnected: async () => {
+        // Reload tree when server reconnects
+        console.log('Server reconnected, reloading tree...');
+        await initTree();
+      },
+      onServerDisconnected: () => {
+        console.log('Server disconnected');
+      }
+    });
+
+    // Toast notifications
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => {
+        toast.className = 'toast';
+      }, 3000);
+    }
+
+    // Get DAG data for a specific root as async generator
+    async function* getDagDataForRoot(rootId) {
+      const fetchStart = Date.now();
+      frontendLog(`Tree View - getDagDataForRoot(${rootId}) START`);
+      try {
+        const apiStart = Date.now();
+        const response = await fetch(`/api/dag?referenceId=${encodeURIComponent(rootId)}`);
+        const data = await response.json();
+        frontendLog(`Tree View - getDagDataForRoot(${rootId}) API call: ${Date.now() - apiStart}ms`);
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to fetch DAG');
+        }
+
+        // Yield each node from the DAG
+        let nodeCount = 0;
+        for (const node of data.nodes) {
+          nodeCount++;
+          yield node;
+        }
+        frontendLog(`Tree View - getDagDataForRoot(${rootId}) COMPLETE: ${Date.now() - fetchStart}ms, nodes: ${nodeCount}`);
+      } catch (error) {
+        console.error(`Error fetching DAG for root ${rootId}:`, error);
+        showToast('Failed to load tree data', 'error');
+      }
+    }
+
+    // Get tagline for an item
+    async function getTagline(itemId) {
+      try {
+        const result = await apiCall('/api/getItemDetails', { itemId });
+        return result.tagline || '';
+      } catch (error) {
+        console.error(`Failed to get tagline for ${itemId}:`, error);
+        return '';
+      }
+    }
+
+    // Render the tree
+    async function renderTree() {
+      const renderStart = Date.now();
+      frontendLog('Tree View - renderTree() START');
+      const container = document.getElementById('treeContainer');
+
+      if (rootItems.length === 0) {
+        container.innerHTML = '<div class="empty-state">No root items found</div>';
+        return;
+      }
+
+      let html = '';
+      const htmlBuildStart = Date.now();
+
+      // Render each root
+      for (const root of rootItems) {
+        // If expanded, render the DagTreeModel (which includes the root itself)
+        if (root.expanded && dagModels.has(root.itemId)) {
+          const model = dagModels.get(root.itemId);
+          const treeNodes = model.getTreeNodes();
+
+          for (const node of treeNodes) {
+            const { seq, itemId, depth, expanded, hasChildren, relationType } = node;
+
+            let icon = '·'; // Middle dot for leaf nodes
+            if (hasChildren) {
+              icon = expanded ? '▼' : '▶'; // Triangle down for expanded, right for collapsed
+            }
+
+            const tagline = await getTagline(itemId);
+            const indentPx = depth * 24;
+
+            // Relationship prefix
+            let relationText = '';
+            if (relationType === 'dependency') {
+              relationText = '<span class="node-relation">Depends on</span>';
+            } else if (relationType === 'provider') {
+              relationText = '<span class="node-relation">Provides to</span>';
+            }
+
+            html += `
+              <div class="tree-node" data-seq="${seq}" data-root="${root.itemId}" style="padding-left: ${indentPx}px;">
+                <div class="node-content">
+                  <span class="node-icon" onclick="handleNodeExpandCollapse('${root.itemId}', ${seq}, event)">${icon}</span><span class="node-details" onclick="handleItemClick('${itemId}')">${relationText}<span class="node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
+                </div>
+              </div>
+            `;
+          }
+        } else {
+          // Not expanded - render placeholder
+          const icon = root.hasChildren ? '▶' : '·'; // Triangle right for collapsed, dot for leaf
+          const tagline = await getTagline(root.itemId);
+
+          html += `
+            <div class="tree-node" data-root="${root.itemId}" style="padding-left: 0px;">
+              <div class="node-content">
+                <span class="node-icon" onclick="handleRootExpandCollapse('${root.itemId}', event)">${icon}</span><span class="node-details" onclick="handleItemClick('${root.itemId}')"><span class="node-itemid">${root.itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      frontendLog(`Tree View - renderTree() HTML build: ${Date.now() - htmlBuildStart}ms`);
+      container.innerHTML = html;
+      frontendLog(`Tree View - renderTree() COMPLETE: ${Date.now() - renderStart}ms`);
+    }
+
+    // Handle root expand/collapse
+    window.handleRootExpandCollapse = async function(rootItemId, event) {
+      event.stopPropagation();
+
+      const root = rootItems.find(r => r.itemId === rootItemId);
+      if (!root || !root.hasChildren) return;
+
+      if (root.expanded) {
+        // Collapse
+        root.expanded = false;
+      } else {
+        // Expand - create DagTreeModel if not already loaded
+        if (!dagModels.has(rootItemId)) {
+          frontendLog(`Loading DAG for root: ${rootItemId}`);
+          const model = new DagTreeModel();
+          await model.initialize(() => getDagDataForRoot(rootItemId));
+          dagModels.set(rootItemId, model);
+
+          // Auto-expand the root node in the DAG (seq 1 is always the root)
+          const rootTreeNodes = model.getTreeNodes();
+          if (rootTreeNodes.length > 0) {
+            const rootSeq = rootTreeNodes[0].seq;
+            model.expand(rootSeq);
+          }
+        }
+        root.expanded = true;
+      }
+
+      await renderTree();
+    };
+
+    // Handle node expand/collapse within a root's DAG
+    window.handleNodeExpandCollapse = async function(rootItemId, seq, event) {
+      event.stopPropagation();
+
+      const model = dagModels.get(rootItemId);
+      if (!model) return;
+
+      const node = model.getTreeNode(seq);
+      if (!node) return;
+
+      try {
+        if (node.expanded) {
+          model.collapse(seq);
+        } else {
+          model.expand(seq);
+        }
+        await renderTree();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    };
+
+    // Handle item click - open edit view as modal overlay
+    window.handleItemClick = function(itemId) {
+      openItemEditor(itemId);
+    };
+
+    // Escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize tree (first load only)
+    async function initTree() {
+      const initStart = Date.now();
+      frontendLog('Tree View - initTree() START');
+      try {
+        // Fetch roots
+        const rootsStart = Date.now();
+        const rootsResponse = await fetch('/api/roots');
+        const rootsData = await rootsResponse.json();
+        frontendLog(`Tree View - initTree() Fetched roots: ${Date.now() - rootsStart}ms, count: ${rootsData.roots.length}`);
+
+        if (!rootsResponse.ok) {
+          throw new Error(rootsData.error || 'Failed to fetch roots');
+        }
+
+        if (rootsData.roots.length === 0) {
+          document.getElementById('treeContainer').innerHTML =
+            '<div class="empty-state">No root items found</div>';
+          return;
+        }
+
+        // Store roots with expansion state
+        rootItems = rootsData.roots.map(r => ({
+          ...r,
+          expanded: false
+        }));
+
+        frontendLog(`Tree View - initTree() Initialized with ${rootItems.length} roots`);
+
+        const renderStart = Date.now();
+        await renderTree();
+        frontendLog(`Tree View - initTree() Render complete: ${Date.now() - renderStart}ms`);
+        frontendLog(`Tree View - initTree() COMPLETE: ${Date.now() - initStart}ms`);
+      } catch (error) {
+        console.error('Failed to initialize tree:', error);
+        showToast('Failed to initialize tree', 'error');
+        document.getElementById('treeContainer').innerHTML =
+          `<div class="empty-state">Error: ${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    // Update tree incrementally when data changes
+    async function updateTree() {
+      try {
+        console.log('Updating tree data...');
+
+        // Re-fetch roots to check if root list or hasChildren flags changed
+        const rootsResponse = await fetch('/api/roots');
+        const rootsData = await rootsResponse.json();
+
+        // Update root items, preserving expansion state
+        const oldRoots = new Map(rootItems.map(r => [r.itemId, r]));
+        rootItems = rootsData.roots.map(r => ({
+          ...r,
+          expanded: oldRoots.get(r.itemId)?.expanded || false
+        }));
+
+        // Remove models for roots that no longer exist
+        for (const [rootItemId] of dagModels.entries()) {
+          if (!rootItems.find(r => r.itemId === rootItemId)) {
+            console.log(`Removing DAG model for deleted root: ${rootItemId}`);
+            dagModels.delete(rootItemId);
+          }
+        }
+
+        // Update each loaded DagTreeModel
+        for (const [rootItemId, model] of dagModels.entries()) {
+          const diff = await model.update(() => getDagDataForRoot(rootItemId));
+
+          console.log(`Data changes for root ${rootItemId}:`, {
+            added: diff.added,
+            removed: diff.removed,
+            dependsOnChanged: diff.dependsOnChanged,
+            providesToChanged: diff.providesToChanged
+          });
+
+          // Handle removed items
+          if (diff.removed.length > 0) {
+            const treeNodesToDelete = [];
+            for (const [seq, treeNode] of model.treeNodes.entries()) {
+              if (diff.removed.includes(treeNode.itemId)) {
+                treeNodesToDelete.push(seq);
+              }
+            }
+
+            for (const seq of treeNodesToDelete) {
+              console.log(`Removing tree node #${seq} for deleted item`);
+              model._deleteTreeNodeChildren(seq);
+              model.treeNodes.delete(seq);
+            }
+          }
+
+          // Sync expanded nodes
+          if (diff.dependsOnChanged.length > 0 || diff.providesToChanged.length > 0) {
+            for (const [seq, treeNode] of Array.from(model.treeNodes.entries())) {
+              if (treeNode.expanded) {
+                model.syncChildren(seq);
+              }
+            }
+          }
+        }
+
+        // Re-render the tree
+        await renderTree();
+
+      } catch (error) {
+        console.error('Failed to update tree:', error);
+        showToast('Failed to update tree', 'error');
+      }
+    }
+
+    // Start
+    async function init() {
+      const initStartTime = Date.now();
+      frontendLog('Tree View - init() START');
+
+      // Inject common CSS
+      document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+      // Initialize configuration and subscribe to changes
+      const configStartTime = Date.now();
+      await configSettings.initialize();
+      configSettings.onChange((config) => {
+        // Apply dark mode when configuration changes
+        const applyDarkMode = (enabled) => {
+          document.body.classList.toggle('dark-mode', enabled);
+        };
+        applyDarkMode(config.darkMode);
+      });
+      frontendLog(`Tree View - Config loaded and applied: ${Date.now() - configStartTime}ms`);
+
+      // Initialize modals
+      initializeItemEditor();
+      initializeDependencyManager();
+      frontendLog('Tree View - Initialized modals');
+
+      // Load status and version in background (non-blocking)
+      loadBranchStatus().then(() => frontendLog('Tree View - loadBranchStatus completed in background'));
+      loadVersion().then(() => frontendLog('Tree View - loadVersion completed in background'));
+
+      // Connect to server (no custom handlers needed, using observer pattern)
+      commonConnectToServer();
+
+      // Subscribe to SSE events using observer pattern
+      // Subscribe to aggregate events
+      subscribeToEvent('aggregatesUpdated', async (e) => {
+        const data = JSON.parse(e.data);
+        frontendLog(`Tree View - SSE event: aggregatesUpdated (${data.itemIds.length} item(s))`);
+
+        // Check if any of the changed items affect any loaded models or root items
+        let affectsView = rootItems.some(r => data.itemIds.includes(r.itemId));
+
+        if (!affectsView) {
+          for (const [, model] of dagModels.entries()) {
+            if (model.affectsCurrentView(data.itemIds)) {
+              affectsView = true;
+              break;
+            }
+          }
+        }
+
+        if (affectsView) {
+          frontendLog(`Tree View - Updating tree (changes affect current view)`);
+          await updateTree();
+        } else {
+          frontendLog(`Tree View - Ignoring update (changes don't affect current view)`);
+        }
+      });
+
+      subscribeToEvent('rebuildCompleted', async (e) => {
+        frontendLog('Tree View - SSE event: rebuildCompleted');
+        await updateTree();
+      });
+
+      // Initialize tree (blocking - this is the main content)
+      const treeStartTime = Date.now();
+      await initTree();
+      frontendLog(`Tree View - Tree initialized: ${Date.now() - treeStartTime}ms`);
+
+      frontendLog(`Tree View - init() COMPLETE: ${Date.now() - initStartTime}ms`);
+    }
+
+    init();
+  </script>
+</body>
+</html>

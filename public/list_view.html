@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="sparkle-view" content="primary" data-view-name="List View">
+  <title>Sparkle</title>
+  <style id="injected-common-css"></style>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    /* Page layout for scrollable items container */
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #itemsContainer {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* List View-specific styles */
+    .pending-list {
+      list-style: none;
+    }
+
+    .pending-item {
+      padding: 12px;
+      border-left: 3px solid #667eea;
+      background: #f9f9f9;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .pending-item:hover {
+      background: #f0f0f0;
+    }
+
+    .item-id {
+      font-family: monospace;
+      color: #666;
+      font-size: 12px;
+    }
+
+    .detail-view {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+
+    .detail-row {
+      display: flex;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .detail-label {
+      font-weight: 600;
+      width: 120px;
+      color: #666;
+    }
+
+    .detail-value {
+      flex: 1;
+    }
+
+    .entry-list {
+      list-style: none;
+      margin-top: 10px;
+    }
+
+    .entry-item {
+      background: white;
+      padding: 10px;
+      border-left: 3px solid #4ade80;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .entry-meta {
+      color: #666;
+      font-size: 11px;
+      margin-bottom: 5px;
+    }
+
+    /* Table styles */
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    .items-table th {
+      background: var(--bg-tertiary);
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-secondary);
+      border-bottom: 2px solid var(--border-color);
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+
+    .items-table th:hover {
+      background: var(--bg-hover);
+    }
+
+    .items-table th .sort-indicator {
+      margin-left: 4px;
+      font-size: 10px;
+      opacity: 0.6;
+    }
+
+    .items-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .items-table tr {
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .items-table tbody tr:hover {
+      background-color: var(--bg-hover);
+    }
+
+    .items-table .pending-col {
+      width: 80px;
+      text-align: center;
+      color: #667eea;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .items-table .date-col {
+      width: 150px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .items-table .status-col {
+      width: 120px;
+      font-size: 13px;
+    }
+
+    .items-table .taken-col {
+      width: 150px;
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .items-table .tagline-col {
+      color: var(--text-primary);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .status-badge.completed {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status-badge.pending {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    .status-badge.blocked {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .help-text {
+      color: #666;
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    /* Filter badges styling */
+    .filter-badges {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      min-height: 24px;
+      align-items: center;
+    }
+
+    .filter-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: #667eea;
+      color: white;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .filter-badge-remove {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1;
+      opacity: 0.8;
+    }
+
+    .filter-badge-remove:hover {
+      opacity: 1;
+    }
+
+    .filter-badges-empty {
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    /* Dependency management styles */
+    .dependency-section {
+      margin-bottom: 20px;
+    }
+
+    .dependency-section h4 {
+      font-size: 16px;
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+
+    .dependency-list {
+      list-style: none;
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .dependency-item {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: #f9f9f9;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .dependency-item:hover {
+      background: #f0f0f0;
+    }
+
+    .dependency-item input[type="checkbox"] {
+      margin-top: 3px;
+      cursor: pointer;
+      width: auto;
+    }
+
+    .dependency-item-content {
+      flex: 1;
+    }
+
+    .dependency-item-tagline {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 3px;
+    }
+
+    .dependency-item-id {
+      font-family: monospace;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .dependency-help-text {
+      color: #666;
+      font-size: 13px;
+      margin-bottom: 10px;
+      padding: 8px;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+
+    .dependency-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .btn-manage-deps {
+      background: #764ba2;
+      color: white;
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+
+    .btn-manage-deps:hover {
+      background: #663a8e;
+    }
+
+    /* Audit trail styles */
+    .audit-trail-list {
+      list-style: none;
+      max-height: 500px;
+      overflow-y: auto;
+      margin-top: 10px;
+    }
+
+    .audit-trail-item {
+      padding: 10px 12px;
+      border-left: 3px solid #667eea;
+      background: #f9f9f9;
+      margin-bottom: 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: monospace;
+      line-height: 1.5;
+    }
+
+    .audit-trail-item:hover {
+      background: #f0f0f0;
+    }
+
+  </style>
+</head>
+<body>
+  <!-- Header and overlay will be injected by sparkle-common.js -->
+
+  <div class="container">
+    <div class="section">
+      <h2>Items</h2>
+      <div class="form-group" style="display: flex; gap: 8px; align-items: flex-start;">
+        <button class="btn-secondary" onclick="openFilterSettings()" style="margin: 0; padding: 8px 16px; white-space: nowrap;">Filter</button>
+        <div style="flex: 1;">
+          <input
+            type="text"
+            id="filterText"
+            placeholder="Search by tagline or item ID..."
+            style="margin-bottom: 5px;"
+          />
+          <div class="help-text">
+            Enter item ID to search by ID, or any text to search taglines
+          </div>
+        </div>
+      </div>
+
+      <div class="filter-badges" id="filterBadges">
+        <span class="filter-badges-empty">No active filters (click Filter to configure)</span>
+      </div>
+      <div id="itemsContainer">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Configuration Modal removed - now using configuration-modal.js component -->
+
+  <!-- View Item Modal removed - now using item-editor.js component -->
+
+  <!-- Manage Dependencies Modal removed - now using dependency-manager.js component -->
+
+  <!-- Audit Trail Modal removed - now using audit-trail.js component -->
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script type="module">
+    import { initializeHeader, connectToServer as commonConnectToServer, apiCall, subscribeToEvent, frontendLog, initializeView, getCommonCSS, loadBranchStatus, loadVersion, applyDarkMode } from './sparkle-common.js';
+    import { initializeItemEditor, openItemEditor, onItemStatusUpdate } from './item-editor.js';
+    import { initializeDependencyManager } from './dependency-manager.js';
+    import { initializeItemCreator, openItemCreator } from './item-creator.js';
+    import { openConfigurationModal } from './configuration-modal.js';
+    import { applyAllFilters } from './listFilter.js';
+    import { ConfigurationSettings } from './ConfigurationSettings.js';
+    import { initializeFilterModal, openFilterModal } from './filter-modal.js';
+    import { ItemsCache } from './ItemsCache.js';
+    // Note: audit-trail.js only exports openAuditTrail (opens in new window, no initialization needed)
+
+    // Global configuration instance
+    const configSettings = new ConfigurationSettings();
+    window.configSettings = configSettings; // Make available for configuration-modal.js
+
+    // Global items cache instance
+    const itemsCache = new ItemsCache();
+    window.itemsCache = itemsCache; // Make available for debugging
+
+    let currentSHA = null;
+    let pollingInterval = null;
+    let eventSource = null;
+
+    // Make functions available globally for onclick handlers
+    window.openConfigurationModal = openConfigurationModal;
+
+    // Observer pattern for status updates
+    const statusUpdateObservers = [];
+
+    function subscribeToStatusUpdates(callback) {
+      statusUpdateObservers.push(callback);
+    }
+
+    function notifyStatusUpdateObservers() {
+      statusUpdateObservers.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('Error in status update observer:', error);
+        }
+      });
+    }
+
+    // Toast notifications (make globally available for components)
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => {
+        toast.className = 'toast';
+      }, 3000);
+    }
+    window.showToast = showToast;
+
+
+    async function openCreateItemModal() {
+      // Use the item-creator component with callback to open item editor after creation
+      frontendLog('list_view: Opening item creator with callback');
+      openItemCreator((itemId) => {
+        frontendLog(`list_view: Callback invoked with itemId: ${itemId}`);
+        // Open item editor immediately (SSE events will handle list refresh)
+        frontendLog(`list_view: Calling openItemEditor with itemId: ${itemId}`);
+        openItemEditor(itemId);
+      });
+    }
+    window.openCreateItemModal = openCreateItemModal;
+
+    // Load status and track current SHA
+    async function loadStatus() {
+      try {
+        const status = await apiCall('/api/status');
+        currentSHA = status.lastChangeSHA;
+      } catch (error) {
+        console.error('Failed to load status:', error);
+      }
+    }
+
+    // Sort state
+    let sortColumn = 'created'; // default sort column
+    let sortDirection = 'desc'; // 'asc' or 'desc'
+
+    // Filter state (separate from ConfigurationSettings defaults)
+    let activeFilters = {
+      pending: 'all',
+      monitor: 'all',
+      ignored: 'not-ignored',
+      taken: 'all'
+    };
+
+    // Load item details on demand (delegates to ItemsCache)
+    async function ensureItemDetails(itemId) {
+      return await itemsCache.ensureItemDetails(itemId);
+    }
+
+    // Check if an item is monitored by current user
+    function isItemMonitored(itemId) {
+      const details = itemsCache.getItemDetails(itemId);
+      if (!details || !details.monitors) {
+        return false;
+      }
+
+      const currentUserEmail = itemsCache.getCurrentUserEmail();
+      if (!currentUserEmail) {
+        return false;
+      }
+
+      return details.monitors.some(monitor => monitor.email === currentUserEmail);
+    }
+
+    // Note: updateTakenFilterOptions removed - no longer needed with modal approach
+    // If we want to show person-specific filter options in the modal in the future,
+    // we can update the filter-modal.js component to dynamically populate them
+
+    // Render filter badges
+    function renderFilterBadges() {
+      const container = document.getElementById('filterBadges');
+      const badges = [];
+
+      const filterLabels = {
+        pending: { all: null, pending: 'Pending only', 'not-pending': 'Not pending' },
+        monitor: { all: null, monitored: 'Monitored', 'not-monitored': 'Not monitored' },
+        ignored: { all: 'All items', 'not-ignored': null, ignored: 'Ignored only' },
+        taken: { all: null, taken: 'Taken by anyone', 'not-taken': 'Not taken' }
+      };
+
+      for (const [filterKey, value] of Object.entries(activeFilters)) {
+        const label = filterLabels[filterKey][value];
+        if (label) {
+          badges.push(`
+            <span class="filter-badge">
+              ${label}
+              <button class="filter-badge-remove" onclick="removeFilter('${filterKey}')" title="Remove filter">&times;</button>
+            </span>
+          `);
+        }
+      }
+
+      if (badges.length === 0) {
+        container.innerHTML = '<span class="filter-badges-empty">No active filters (click Filter to configure)</span>';
+      } else {
+        container.innerHTML = badges.join('');
+      }
+    }
+
+    // Remove a specific filter
+    function removeFilter(filterKey) {
+      const defaults = { pending: 'all', monitor: 'all', ignored: 'not-ignored', taken: 'all' };
+      activeFilters[filterKey] = defaults[filterKey];
+      renderFilterBadges();
+      filterAndRenderItems();
+    }
+    window.removeFilter = removeFilter;
+
+    // Open filter settings modal
+    function openFilterSettings() {
+      openFilterModal(activeFilters, (newFilters) => {
+        activeFilters = { ...newFilters };
+        renderFilterBadges();
+        filterAndRenderItems();
+      });
+    }
+    window.openFilterSettings = openFilterSettings;
+
+    // Filter and render items based on current filter settings
+    async function filterAndRenderItems() {
+      const filterRenderStart = Date.now();
+      frontendLog(`filterAndRenderItems() - START`);
+
+      const container = document.getElementById('itemsContainer');
+      const filterText = document.getElementById('filterText').value.trim();
+      const pendingFilter = activeFilters.pending;
+      const monitorFilter = activeFilters.monitor;
+      const ignoredFilter = activeFilters.ignored;
+      const takenFilter = activeFilters.taken;
+
+      // Get data from ItemsCache
+      const allItems = itemsCache.getItems();
+      const pendingItemIds = itemsCache.getPendingItemIds();
+      const currentUserEmail = itemsCache.getCurrentUserEmail();
+      const allItemsWithDetails = itemsCache.getAllItemDetails();
+
+      // Load item details if monitor, ignored filter is active, or to show taken-by info
+      // (always load to show taken-by column)
+      const detailsLoadStart = Date.now();
+      await Promise.all(allItems.map(item => ensureItemDetails(item.itemId)));
+      frontendLog(`filterAndRenderItems() - Load all details (${allItems.length} items): ${Date.now() - detailsLoadStart}ms`);
+
+      // Apply all filters using the listFilter module
+      const filterStart = Date.now();
+      const filteredItems = applyAllFilters(allItems, {
+        pendingItemIds: pendingItemIds,
+        pendingFilter: pendingFilter,
+        itemDetailsCache: allItemsWithDetails,
+        currentUserEmail: currentUserEmail,
+        monitorFilter: monitorFilter,
+        ignoredFilter: ignoredFilter,
+        takenFilter: takenFilter,
+        searchText: filterText
+      });
+      frontendLog(`filterAndRenderItems() - Apply filters: ${Date.now() - filterStart}ms, ${filteredItems.length} items matched`);
+
+      // Render the filtered items as a table
+      if (filteredItems.length === 0) {
+        let message = 'No items match the filters';
+        if (filterText) {
+          message = 'No items match the search query';
+        } else if (pendingFilter !== 'all' || monitorFilter !== 'all' || ignoredFilter !== 'not-ignored') {
+          message = 'No items match the selected filters';
+        } else {
+          message = 'No items found';
+        }
+        container.innerHTML = `<div class="empty-state">${message}</div>`;
+        return;
+      }
+
+      // Sort the filtered items
+      const sortedItems = sortItems(filteredItems, pendingItemIds, allItemsWithDetails);
+
+      const getSortIndicator = (column) => {
+        if (sortColumn === column) {
+          return `<span class="sort-indicator">${sortDirection === 'asc' ? '▲' : '▼'}</span>`;
+        }
+        return '';
+      };
+
+      let tableHTML = `
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th class="pending-col" onclick="setSortColumn('pending')">Pending${getSortIndicator('pending')}</th>
+              <th class="date-col" onclick="setSortColumn('created')">Created${getSortIndicator('created')}</th>
+              <th class="status-col" onclick="setSortColumn('status')">Status${getSortIndicator('status')}</th>
+              <th class="taken-col" onclick="setSortColumn('taken')">Taken By${getSortIndicator('taken')}</th>
+              <th class="tagline-col" onclick="setSortColumn('tagline')">Tagline${getSortIndicator('tagline')}</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const item of sortedItems) {
+        const isPending = pendingItemIds.has(item.itemId);
+        const createdDate = new Date(item.created);
+        const formattedDate = createdDate.toLocaleString();
+
+        let statusBadgeClass = 'blocked';
+        let statusText = item.status;
+
+        if (item.status === 'completed') {
+          statusBadgeClass = 'completed';
+        } else if (isPending) {
+          statusBadgeClass = 'pending';
+        }
+
+        // Get taken by info if available
+        const details = allItemsWithDetails.get(item.itemId);
+        const takenByText = details && details.takenBy ? `👤 ${escapeHtml(details.takenBy.name)}` : '';
+
+        tableHTML += `
+          <tr onclick="viewItem('${item.itemId}')">
+            <td class="pending-col">${isPending ? 'Pending' : ''}</td>
+            <td class="date-col">${formattedDate}</td>
+            <td class="status-col"><span class="status-badge ${statusBadgeClass}">${statusText}</span></td>
+            <td class="taken-col">${takenByText}</td>
+            <td class="tagline-col">${escapeHtml(item.tagline)}</td>
+          </tr>
+        `;
+      }
+
+      tableHTML += `
+          </tbody>
+        </table>
+      `;
+
+      const renderStart = Date.now();
+      container.innerHTML = tableHTML;
+      frontendLog(`filterAndRenderItems() - DOM rendering: ${Date.now() - renderStart}ms`);
+      frontendLog(`filterAndRenderItems() - COMPLETE: ${Date.now() - filterRenderStart}ms`);
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Sort items by current sort column and direction
+    function sortItems(items, pendingItemIds, allItemsWithDetails) {
+      const sorted = [...items];
+
+      sorted.sort((a, b) => {
+        let aVal, bVal;
+
+        switch (sortColumn) {
+          case 'pending':
+            aVal = pendingItemIds.has(a.itemId) ? 1 : 0;
+            bVal = pendingItemIds.has(b.itemId) ? 1 : 0;
+            break;
+          case 'created':
+            aVal = new Date(a.created).getTime();
+            bVal = new Date(b.created).getTime();
+            break;
+          case 'status':
+            aVal = a.status || '';
+            bVal = b.status || '';
+            break;
+          case 'taken':
+            const aDetails = allItemsWithDetails.get(a.itemId);
+            const bDetails = allItemsWithDetails.get(b.itemId);
+            aVal = aDetails?.takenBy?.name || '';
+            bVal = bDetails?.takenBy?.name || '';
+            break;
+          case 'tagline':
+            aVal = a.tagline || '';
+            bVal = b.tagline || '';
+            break;
+          default:
+            return 0;
+        }
+
+        // Handle string vs number comparison
+        let comparison;
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          comparison = aVal.localeCompare(bVal);
+        } else {
+          comparison = aVal - bVal;
+        }
+
+        return sortDirection === 'asc' ? comparison : -comparison;
+      });
+
+      return sorted;
+    }
+
+    // Set sort column (toggle direction if same column)
+    function setSortColumn(column) {
+      if (sortColumn === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = column;
+        sortDirection = column === 'created' ? 'desc' : 'asc'; // Default to desc for dates, asc for others
+      }
+      filterAndRenderItems();
+    }
+    window.setSortColumn = setSortColumn;
+
+    // Legacy function name for compatibility (now does nothing - ItemsCache handles loading)
+    async function loadPendingWork() {
+      // No-op: ItemsCache already loaded in init()
+      // Kept for compatibility with callbacks that might still call this
+    }
+
+    // View item
+    function viewItem(itemId) {
+      // Use the item-editor component
+      openItemEditor(itemId);
+    }
+    window.viewItem = viewItem;
+
+
+
+    // Manual fetch
+    async function manualFetch() {
+      try {
+        const result = await apiCall('/api/fetch', {});
+        if (result.success) {
+          if (result.message === 'Fetch already in progress') {
+            showToast('Fetch already in progress');
+          } else {
+            showToast('Fetch started');
+          }
+        } else {
+          showToast('Fetch request failed', 'error');
+        }
+      } catch (error) {
+        showToast(`Error: ${error.message}`, 'error');
+      }
+    }
+    window.manualFetch = manualFetch;
+
+
+    // Polling for changes
+    async function checkForChanges() {
+      try {
+        const result = await apiCall('/api/getLastChange');
+        if (currentSHA && result.sha !== currentSHA) {
+          currentSHA = result.sha;
+          loadStatus();
+          loadPendingWork();
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }
+
+    // Initialize
+    async function init() {
+      const initStartTime = Date.now();
+      frontendLog(`init() - START`);
+
+      // Inject common CSS
+      const cssStartTime = Date.now();
+      document.getElementById('injected-common-css').textContent = getCommonCSS();
+      frontendLog(`init() - Injected CSS: ${Date.now() - cssStartTime}ms`);
+
+      // Initialize configuration settings
+      const configStartTime = Date.now();
+      await configSettings.initialize();
+      frontendLog(`init() - Config initialized: ${Date.now() - configStartTime}ms`);
+
+      // Subscribe to configuration changes
+      configSettings.onChange((config) => {
+        frontendLog('Configuration changed, applying updates');
+
+        // Apply dark mode
+        applyDarkMode(config.darkMode);
+
+        // Update active filters with new defaults from config
+        activeFilters = { ...config.filters };
+        renderFilterBadges();
+
+        // Re-apply filters with new values
+        filterAndRenderItems();
+
+        // Notify status observers (for modals)
+        notifyStatusUpdateObservers();
+      });
+
+      // Initialize header with navigation dropdown
+      const headerStartTime = Date.now();
+      initializeHeader({
+        usePrimaryViewsDropdown: true,
+        onServerConnected: async () => {
+          frontendLog('Server reconnected event, reloading data...');
+          await loadStatus();
+          // ItemsCache will reload via SSE events after reconnection
+          frontendLog('ItemsCache will refresh via SSE after reconnection');
+        },
+        onServerDisconnected: () => {
+          frontendLog('Server disconnected event');
+        }
+      });
+      frontendLog(`init() - Initialized header: ${Date.now() - headerStartTime}ms`);
+
+      // Connect to server FIRST (before loading data)
+      // This ensures the disconnection overlay shows immediately if daemon is down
+      const connectStartTime = Date.now();
+      commonConnectToServer();
+      frontendLog(`init() - commonConnectToServer: ${Date.now() - connectStartTime}ms`);
+
+      // Subscribe to SSE events using observer pattern
+      // Note: statusesUpdated and configurationUpdated are now handled by ConfigurationSettings class
+      // Note: aggregatesUpdated and rebuildCompleted are now handled by ItemsCache class
+
+      // Initialize modals/components
+      const modalStartTime = Date.now();
+      initializeItemEditor();
+      initializeDependencyManager();
+      initializeItemCreator();
+      initializeFilterModal();
+      frontendLog(`init() - Initialized modals: ${Date.now() - modalStartTime}ms`);
+
+      // Initialize active filters from config
+      activeFilters = { ...configSettings.config.filters };
+      renderFilterBadges();
+
+      // Initialize ItemsCache (blocking - this loads all items)
+      const itemsCacheStartTime = Date.now();
+      await itemsCache.initialize();
+      frontendLog(`init() - ItemsCache initialized: ${Date.now() - itemsCacheStartTime}ms`);
+
+      // Subscribe to ItemsCache changes (observer pattern)
+      itemsCache.onChange(() => {
+        frontendLog('ItemsCache changed, re-rendering');
+        filterAndRenderItems();
+      });
+
+      // Register callback for when item status changes
+      onItemStatusUpdate(() => {
+        // ItemsCache will be notified via SSE, no need to manually reload
+        frontendLog('Item status updated, ItemsCache will handle refresh via SSE');
+      });
+
+      // Load status and version in background (non-blocking)
+      // These update git/branch status which aren't needed for initial item display
+      loadBranchStatus().then(() => frontendLog('loadBranchStatus - completed in background'));
+      loadVersion().then(() => frontendLog('loadVersion - completed in background'));
+      loadStatus().then(() => frontendLog('loadStatus - completed in background'));
+
+      // Add event listener for search text
+      document.getElementById('filterText').addEventListener('input', filterAndRenderItems);
+
+      // Start polling every 5 seconds
+      pollingInterval = setInterval(checkForChanges, 5000);
+
+      frontendLog(`init() - COMPLETE: ${Date.now() - initStartTime}ms`);
+    }
+
+    // Start when page loads
+    init();
+  </script>
+</body>
+</html>

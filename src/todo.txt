@@ -1,0 +1,16 @@
+1. verify what the current shape of the post-install world install
+2. status must be for the item itself, but to _release_ must have all dependencies as completed
+   this is an issue because there is work on X and it needs Y, when the work on X finishes, it's
+   blocked by Y, but there's not more to do. And if someone adds Z as a dependency to X, that still
+   doesn't mean X isn't complete.
+
+   Thus, we need a distinction between "work done" and "item ready for use."
+
+3. We need a way for a person to assign themselves (and bump any prior assigned person)
+4. we need a way to add a monitor for updates
+5. we need a way to notify someone who monitors what they should examine
+6. we need a way to "delete" an item without changing it status.
+7. we need flags to show deleted, to hide completed, etc.
+8. we need a graphical display to show the graphs
+9. we need a vsix plugin
+10. need a way to put a link into an entry

@@ -1,0 +1,25 @@
+# Test files
+tests/
+examples/
+
+# Documentation that's not needed in the package
+docs/
+
+# Development files
+.git/
+.gitignore
+.DS_Store
+
+# Test data directories
+sparkle-data/
+.sparkle-worktree/
+
+# Logs
+*.log
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Port Conflict - Sparkle</title>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .error-container {
+      max-width: 600px;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+      padding: 40px;
+      box-shadow: 0 4px 12px var(--shadow-color);
+      text-align: center;
+    }
+
+    .error-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      color: #ef4444;
+      font-size: 28px;
+      margin-bottom: 20px;
+    }
+
+    .error-message {
+      color: var(--text-primary);
+      font-size: 16px;
+      line-height: 1.6;
+      margin-bottom: 30px;
+    }
+
+    .port-info {
+      background: var(--bg-tertiary);
+      border: 2px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 30px;
+      text-align: left;
+    }
+
+    .port-info h3 {
+      margin: 0 0 15px 0;
+      color: var(--text-primary);
+      font-size: 18px;
+    }
+
+    .port-info p {
+      margin: 8px 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .port-info .highlight {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: monospace;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .code-block {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px 16px;
+      font-family: monospace;
+      font-size: 14px;
+      color: var(--text-primary);
+      margin: 20px 0;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <div class="error-container">
+    <div class="error-icon">⚠️</div>
+    <h1>Port Configuration Conflict</h1>
+
+    <div class="error-message">
+      The configured port could not be used because it's already in use by another process.
+      The daemon has started on an ephemeral (temporary) port instead.
+    </div>
+
+    <div class="port-info">
+      <h3>What Happened?</h3>
+      <p>You configured a fixed port in the Configuration settings, but when the daemon tried to restart, that port was already occupied by another process (possibly another Sparkle daemon or a different application).</p>
+      <p class="highlight">Current ephemeral port: <span id="currentPort">Loading...</span></p>
+    </div>
+
+    <div class="port-info">
+      <h3>How to Fix This:</h3>
+      <p><strong>Option 1:</strong> Stop the process using the configured port and restart the daemon:</p>
+      <div class="code-block">npx sparkle browser</div>
+
+      <p style="margin-top: 20px;"><strong>Option 2:</strong> Choose a different port number in the Configuration settings.</p>
+
+      <p style="margin-top: 20px;"><strong>Option 3:</strong> Remove the fixed port configuration to always use ephemeral ports.</p>
+    </div>
+
+    <div class="action-buttons">
+      <button class="btn-primary" onclick="window.location.href='/list_view.html'">
+        Continue with Ephemeral Port
+      </button>
+      <button class="btn-secondary" onclick="openConfiguration()">
+        Open Configuration
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { openConfigurationModal } from './configuration-modal.js';
+
+    // Display current port
+    const port = window.location.port || '80';
+    document.getElementById('currentPort').textContent = port;
+
+    // Make openConfiguration available globally
+    window.openConfiguration = () => {
+      openConfigurationModal();
+    };
+  </script>
+</body>
+</html>

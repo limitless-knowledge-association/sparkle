@@ -1,0 +1,19 @@
+# Build artifacts
+*.tgz
+.build-dist/
+
+# Node modules
+node_modules/
+
+# Sparkle tracking instance
+.sparkle-worktree/
+sparkle_install.log
+
+# Created by the version builder
+src/version.js
+
+# Auto-generated primary views registry
+public/primaryViews.js
+
+# Integration test directory
+.integration_testing/

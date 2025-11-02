@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="sparkle-view" content="primary" data-view-name="Monitor">
+  <title>Monitor - Sparkle</title>
+  <style id="injected-common-css"></style>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <link rel="stylesheet" href="audit-common.css">
+  <style>
+    /* Page layout for scrollable monitor content */
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .section {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #monitorContent {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    /* Monitor-specific styles */
+    .monitor-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+    }
+
+    .monitor-header h2 {
+      margin: 0;
+      font-size: 24px;
+      color: var(--text-primary);
+    }
+
+    .monitor-filter {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .monitor-filter label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-primary);
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .monitor-filter input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    /* Monitor-specific: clickable items with hover effects */
+    .audit-item {
+      cursor: pointer;
+      position: relative;
+    }
+
+    .audit-item:hover {
+      transform: translateX(4px);
+    }
+
+    /* Monitor-specific: two-line format with icon */
+    .audit-item-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .audit-item-icon {
+      flex-shrink: 0;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #667eea;
+      margin-top: 6px;
+    }
+
+    .audit-item-text {
+      flex: 1;
+    }
+
+    .audit-item-header {
+      font-weight: 500;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .audit-item-id {
+      font-family: monospace;
+      color: #764ba2;
+      font-size: 13px;
+      background: rgba(118, 75, 162, 0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    .audit-item-status {
+      color: #667eea;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .audit-item-tagline {
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+
+    .audit-item-event {
+      color: var(--text-secondary);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Ignored item visual indicator */
+    .audit-item-ignored {
+      opacity: 0.7;
+    }
+
+    .audit-item-ignored .audit-item-tagline {
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    .ignored-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 6px;
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-left: 6px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header and overlay will be injected by sparkle-common.js -->
+
+  <div class="container">
+    <div class="section">
+      <div class="monitor-header">
+        <h2>Monitor</h2>
+        <div class="monitor-filter">
+          <label>
+            <input type="checkbox" id="monitoredOnlyCheckbox" checked>
+            Monitored
+          </label>
+        </div>
+      </div>
+      <div id="monitorContent">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeHeader, connectToServer, loadBranchStatus, loadVersion, getCommonCSS, subscribeToEvent, frontendLog } from './sparkle-common.js';
+    import { ConfigurationSettings } from './ConfigurationSettings.js';
+    import { initializeItemEditor, openItemEditor } from './item-editor.js';
+    import { AuditController } from './AuditController.js';
+    import { MonitorView } from './MonitorView.js';
+
+    // Configuration settings instance
+    const configSettings = new ConfigurationSettings();
+
+    // Inject common CSS
+    document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+    // Initialize header with primary views dropdown
+    initializeHeader({ usePrimaryViewsDropdown: true });
+
+    // Initialize item editor
+    initializeItemEditor();
+
+    // API helper
+    async function apiCall(endpoint, body = null) {
+      const options = {
+        method: body ? 'POST' : 'GET',
+        headers: body ? { 'Content-Type': 'application/json' } : {}
+      };
+
+      if (body) {
+        options.body = JSON.stringify(body);
+      }
+
+      const response = await fetch(endpoint, options);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Request failed');
+      }
+
+      return result;
+    }
+
+    // Create MVC components
+    const controller = new AuditController(apiCall, subscribeToEvent);
+    const view = new MonitorView('monitorContent', (itemId) => {
+      openItemEditor(itemId);
+    });
+
+    // Wire controller to view
+    controller.onDataChanged((entries) => {
+      view.render(entries);
+    });
+
+    // Track monitored-only mode
+    let monitoredOnlyMode = true;
+
+    // Function to reload data based on checkbox state
+    async function reloadData() {
+      try {
+        if (monitoredOnlyMode) {
+          await controller.loadForMonitoredItems();
+        } else {
+          await controller.loadForAllItems();
+        }
+      } catch (error) {
+        view.renderEmpty('Error loading data');
+        console.error('Error loading data:', error);
+      }
+    }
+
+    // Override refresh to respect checkbox state
+    controller.refresh = async function() {
+      await reloadData();
+    };
+
+    // Add checkbox handler
+    const checkbox = document.getElementById('monitoredOnlyCheckbox');
+    checkbox.addEventListener('change', async (e) => {
+      monitoredOnlyMode = e.target.checked;
+      await reloadData();
+    });
+
+    // Subscribe to SSE updates
+    controller.subscribeToUpdates();
+
+    // Initialize
+    (async function init() {
+      const initStartTime = Date.now();
+      frontendLog('Monitor View - init() START');
+
+      // Inject common CSS
+      document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+      // Initialize configuration and subscribe to changes
+      const configStartTime = Date.now();
+      await configSettings.initialize();
+      configSettings.onChange((config) => {
+        // Apply dark mode when configuration changes
+        const applyDarkMode = (enabled) => {
+          document.body.classList.toggle('dark-mode', enabled);
+        };
+        applyDarkMode(config.darkMode);
+      });
+      frontendLog(`Monitor View - Config loaded and applied: ${Date.now() - configStartTime}ms`);
+
+      // Connect to SSE for live updates
+      connectToServer();
+
+      // Load status info in background (non-blocking)
+      loadBranchStatus().then(() => frontendLog('Monitor View - loadBranchStatus completed in background'));
+      loadVersion().then(() => frontendLog('Monitor View - loadVersion completed in background'));
+
+      // Load initial data (blocking - this is the main content)
+      const loadStartTime = Date.now();
+      try {
+        await reloadData();
+        frontendLog(`Monitor View - Data loaded: ${Date.now() - loadStartTime}ms`);
+      } catch (error) {
+        view.renderEmpty('Error loading data');
+        frontendLog(`Monitor View - Error loading data: ${error.message}`);
+      }
+
+      frontendLog(`Monitor View - init() COMPLETE: ${Date.now() - initStartTime}ms`);
+    })();
+  </script>
+</body>
+</html>

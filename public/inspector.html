@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inspector - Sparkle</title>
+  <style id="injected-common-css"></style>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    /* Inspector-specific styles */
+    .container {
+      max-width: 1400px;
+    }
+
+    .anchor-info {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+
+    .anchor-info h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+      opacity: 0.9;
+    }
+
+    .anchor-info .anchor-id {
+      font-family: monospace;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .anchor-info .anchor-tagline {
+      font-size: 20px;
+      margin-bottom: 12px;
+    }
+
+    .anchor-info .anchor-status {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .tree-container {
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-top: 15px;
+    }
+
+    .tree-node {
+      padding: 4px 0;
+      cursor: pointer;
+      user-select: none;
+      position: relative;
+    }
+
+    .tree-node:hover .node-content {
+      background: var(--bg-hover);
+      border-radius: 4px;
+    }
+
+    .tree-node.anchor-node {
+      background: rgba(102, 126, 234, 0.05);
+      border-left: 4px solid #667eea;
+      padding-left: 8px;
+      margin: 8px 0;
+    }
+
+    .tree-node.anchor-node .node-content {
+      font-weight: 600;
+    }
+
+    .node-content {
+      padding: 2px 4px;
+      display: inline-block;
+      transition: background 0.15s;
+    }
+
+    .node-relation {
+      color: #764ba2;
+      font-style: italic;
+      margin-right: 6px;
+    }
+
+    .node-relation.dependency {
+      color: #dc2626;
+    }
+
+    .node-relation.provider {
+      color: #16a34a;
+    }
+
+    .node-itemid {
+      color: #667eea;
+      font-weight: 600;
+      margin-right: 8px;
+    }
+
+    .node-tagline {
+      color: var(--text-primary);
+    }
+
+    .node-status {
+      margin-left: 8px;
+      font-size: 12px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-style: normal;
+    }
+
+    .node-status.completed {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .node-status.incomplete {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 10px;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+
+    .legend-color.dependency {
+      background: #dc2626;
+    }
+
+    .legend-color.provider {
+      background: #16a34a;
+    }
+
+    .legend-color.anchor {
+      background: #667eea;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header will be injected by sparkle-common.js -->
+
+  <div class="container">
+    <div id="loadingSection" class="section" style="display: block;">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div>Loading inspector view...</div>
+      </div>
+    </div>
+
+    <div id="errorSection" class="section" style="display: none;">
+      <div class="error-state">
+        <div id="errorMessage"></div>
+      </div>
+    </div>
+
+    <div id="contentSection" style="display: none;">
+      <div class="anchor-info">
+        <h3>🔍 Inspecting Item</h3>
+        <div class="anchor-id" id="anchorId"></div>
+        <div class="anchor-tagline" id="anchorTagline"></div>
+        <div class="anchor-status" id="anchorStatus"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title">Dependency Graph View</div>
+          <div class="button-group" style="margin: 0;">
+            <button class="btn-primary" onclick="openAnchorInEditor()">Open in Editor</button>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item">
+            <div class="legend-color anchor"></div>
+            <span>Anchor Item (Current)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color dependency"></div>
+            <span>Dependencies (Items this depends on)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color provider"></div>
+            <span>Providers (Items that depend on this)</span>
+          </div>
+        </div>
+
+        <div id="treeContainer" class="tree-container">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <div>Building tree...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script type="module">
+    import { initializeHeader, connectToServer as commonConnectToServer, loadBranchStatus, loadVersion, apiCall, getCommonCSS, subscribeToEvent, frontendLog } from '../public/sparkle-common.js';
+    import { ConfigurationSettings } from '../public/ConfigurationSettings.js';
+    import { initializeItemEditor, openItemEditor } from '../public/item-editor.js';
+    import { initializeDependencyManager } from '../public/dependency-manager.js';
+    import { DagTreeModel } from './dagTreeModel.js';
+    // Note: audit-trail.js only exports openAuditTrail (opens in new window, no initialization needed)
+
+    // Get itemId from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const anchorItemId = urlParams.get('itemId');
+
+    let anchorItemDetails = null;
+    let treeModel = null; // DagTreeModel for filtering
+
+    // Configuration settings instance
+    const configSettings = new ConfigurationSettings();
+
+    // Inject common CSS
+    document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+    // Initialize configuration and subscribe to changes
+    await configSettings.initialize();
+    configSettings.onChange((config) => {
+      // Apply dark mode when configuration changes
+      const applyDarkMode = (enabled) => {
+        document.body.classList.toggle('dark-mode', enabled);
+      };
+      applyDarkMode(config.darkMode);
+    });
+
+    // Initialize header (no navigation - standalone window)
+    initializeHeader({
+      onServerConnected: async () => {
+        console.log('Server reconnected, reloading inspector...');
+        await loadInspectorView();
+      },
+      onServerDisconnected: () => {
+        console.log('Server disconnected');
+      }
+    });
+
+    // Toast notifications
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => {
+        toast.className = 'toast';
+      }, 3000);
+    }
+    window.showToast = showToast;
+
+    // Escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Show error state
+    function showError(message) {
+      document.getElementById('loadingSection').style.display = 'none';
+      document.getElementById('contentSection').style.display = 'none';
+      document.getElementById('errorSection').style.display = 'block';
+      document.getElementById('errorMessage').textContent = message;
+    }
+
+    // Generator function for DagTreeModel
+    async function* getDagDataGenerator() {
+      const response = await fetch(`/api/dag?referenceId=${encodeURIComponent(anchorItemId)}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch DAG');
+      }
+
+      // Yield each node from the DAG
+      for (const node of data.nodes) {
+        yield node;
+      }
+    }
+
+    // Old tree building functions removed - now using DagTreeModel
+
+    // Render the complete inspector tree using DagTreeModel
+    async function renderInspectorTree() {
+      const renderStart = Date.now();
+      frontendLog(`renderInspectorTree() - START`);
+      const container = document.getElementById('treeContainer');
+
+      if (!treeModel || !anchorItemId) {
+        container.innerHTML = '<div class="empty-state">No data available</div>';
+        return;
+      }
+
+      try {
+        container.innerHTML = '<div class="loading-state">Building tree...</div>';
+
+        // Get all tree nodes from model (returns in order: ROOT, providers, dependencies)
+        const treeNodes = treeModel.getTreeNodes();
+        frontendLog(`renderInspectorTree() - Got ${treeNodes.length} tree nodes from model`);
+
+        if (treeNodes.length === 0) {
+          container.innerHTML = '<div class="empty-state">No items in tree</div>';
+          return;
+        }
+
+        // Separate nodes for proper inspector display order
+        let anchorNode = null;
+        const providerNodes = [];
+        const dependencyNodes = [];
+
+        for (const node of treeNodes) {
+          if (node.itemId === anchorItemId) {
+            anchorNode = node;
+          } else if (node.relationType === 'provider') {
+            providerNodes.push(node);
+          } else if (node.relationType === 'dependency') {
+            dependencyNodes.push(node);
+          }
+        }
+
+        let html = '';
+
+        // Render providers ABOVE anchor (reversed so deepest appears first)
+        // This creates a visual flow: start at top/right, move down/left toward ROOT
+        // Reader's eyes move DOWN as they get closer to the root
+        const reversedProviders = [...providerNodes].reverse();
+        for (const node of reversedProviders) {
+          html += await renderInspectorNode(node, '↑ Provides to');
+        }
+
+        // Render anchor at position zero (no indent)
+        if (anchorNode) {
+          const anchorDetails = await apiCall('/api/getItemDetails', { itemId: anchorItemId });
+          const statusClass = anchorDetails.status === 'completed' ? 'completed' : 'incomplete';
+          const statusBadge = `<span class="node-status ${statusClass}">${anchorDetails.status}</span>`;
+          html += `
+            <div class="tree-node anchor-node" style="padding-left: 0px;">
+              <div class="node-content" onclick="handleItemClick('${anchorItemId}')">
+                <span class="node-itemid">★ ${anchorItemId}</span><span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>${statusBadge}
+              </div>
+            </div>
+          `;
+        }
+
+        // Render dependencies BELOW anchor (normal depth order - shallowest first)
+        // They should appear going "to the right" with increasing depth
+        for (const node of dependencyNodes) {
+          html += await renderInspectorNode(node, '↓ Depends on');
+        }
+
+        if (html === '') {
+          html = '<div class="empty-state">No dependencies or providers found for this item</div>';
+        }
+
+        container.innerHTML = html;
+        frontendLog(`renderInspectorTree() - COMPLETE: ${Date.now() - renderStart}ms`);
+
+      } catch (error) {
+        console.error('Error rendering tree:', error);
+        container.innerHTML = `<div class="error-state">Error rendering tree: ${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    // Render a single inspector node
+    async function renderInspectorNode(node, relationText) {
+      const { itemId, depth } = node;
+      const itemDetails = await apiCall('/api/getItemDetails', { itemId });
+      const indentPx = depth * 24; // 24px per level
+
+      const statusClass = itemDetails.status === 'completed' ? 'completed' : 'incomplete';
+      const statusBadge = `<span class="node-status ${statusClass}">${itemDetails.status}</span>`;
+
+      return `
+        <div class="tree-node" style="padding-left: ${indentPx}px;">
+          <div class="node-content" onclick="handleItemClick('${itemId}')">
+            <span class="node-relation">${relationText}</span><span class="node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>${statusBadge}
+          </div>
+        </div>
+      `;
+    }
+
+    // Handle item click - open in editor
+    window.handleItemClick = function(itemId) {
+      openItemEditor(itemId);
+    };
+
+    // Open anchor item in editor
+    window.openAnchorInEditor = function() {
+      if (anchorItemId) {
+        openItemEditor(anchorItemId);
+      }
+    };
+
+    // Load inspector view
+    async function loadInspectorView() {
+      const loadStart = Date.now();
+      frontendLog(`loadInspectorView() - START`);
+      try {
+        // Fetch anchor item details
+        const anchorStart = Date.now();
+        anchorItemDetails = await apiCall('/api/getItemDetails', { itemId: anchorItemId });
+        frontendLog(`loadInspectorView() - Fetched anchor item details: ${Date.now() - anchorStart}ms`);
+
+        // Update anchor info display
+        document.getElementById('anchorId').textContent = anchorItemId;
+        document.getElementById('anchorTagline').textContent = anchorItemDetails.tagline;
+        document.getElementById('anchorStatus').textContent =
+          `Status: ${anchorItemDetails.status} | Created: ${new Date(anchorItemDetails.created).toLocaleString()}`;
+
+        // Initialize tree model starting from anchor item
+        const treeModelStart = Date.now();
+        treeModel = new DagTreeModel();
+        await treeModel.initialize(getDagDataGenerator, anchorItemId);
+        frontendLog(`loadInspectorView() - treeModel initialized from anchor: ${Date.now() - treeModelStart}ms`);
+
+        // Expand all nodes from anchor
+        const anchorSeq = 1; // Anchor is always seq 1 when initialized with anchorItemId
+        treeModel.expandAll(anchorSeq);
+        frontendLog(`loadInspectorView() - expanded all from anchor`);
+
+        // Render the tree
+        const renderStart = Date.now();
+        await renderInspectorTree();
+        frontendLog(`loadInspectorView() - renderInspectorTree complete: ${Date.now() - renderStart}ms`);
+
+        // Show content
+        document.getElementById('loadingSection').style.display = 'none';
+        document.getElementById('contentSection').style.display = 'block';
+
+        frontendLog(`loadInspectorView() - COMPLETE: ${Date.now() - loadStart}ms`);
+      } catch (error) {
+        console.error('Error loading inspector view:', error);
+        showError(`Failed to load inspector: ${error.message}`);
+      }
+    }
+
+    // Handle data updates
+    async function handleDataUpdate(e) {
+      const data = JSON.parse(e.data);
+      console.log(`Inspector - aggregatesUpdated (${data.itemIds.length} item(s))`);
+
+      // Only update if the changed items affect our current view
+      if (treeModel && treeModel.affectsCurrentView(data.itemIds)) {
+        console.log('Inspector - Updating view (changes affect current view)');
+        try {
+          // Reload anchor details
+          anchorItemDetails = await apiCall('/api/getItemDetails', { itemId: anchorItemId });
+
+          // Update anchor display
+          document.getElementById('anchorTagline').textContent = anchorItemDetails.tagline;
+          document.getElementById('anchorStatus').textContent =
+            `Status: ${anchorItemDetails.status} | Created: ${new Date(anchorItemDetails.created).toLocaleString()}`;
+
+          // Reinitialize tree model from anchor
+          treeModel = new DagTreeModel();
+          await treeModel.initialize(getDagDataGenerator, anchorItemId);
+
+          // Expand all from anchor
+          const anchorSeq = 1;
+          treeModel.expandAll(anchorSeq);
+
+          // Re-render tree
+          await renderInspectorTree();
+        } catch (error) {
+          console.error('Error updating inspector:', error);
+          showToast('Failed to update inspector view', 'error');
+        }
+      } else {
+        console.log('Inspector - Ignoring update (changes don\'t affect current view)');
+      }
+    }
+
+    // Initialize
+    async function init() {
+      if (!anchorItemId) {
+        showError('No item ID provided. Please navigate from the main page or tree view.');
+        return;
+      }
+
+      // Initialize modals
+      initializeItemEditor();
+      initializeDependencyManager();
+      // Audit trail opens in new window, no initialization needed
+
+      // Load status and version
+      await loadBranchStatus();
+      await loadVersion();
+
+      // Connect to server (no custom handlers needed, using observer pattern)
+      commonConnectToServer();
+
+      // Subscribe to SSE events using observer pattern
+      subscribeToEvent('aggregatesUpdated', handleDataUpdate);
+
+      // Load the inspector view
+      await loadInspectorView();
+    }
+
+    init();
+  </script>
+</body>
+</html>

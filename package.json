@@ -1,0 +1,50 @@
+{
+  "name": "sparkle",
+  "version": "1.0.286",
+  "description": "A system to keep track of all the details using git as storage",
+  "type": "module",
+  "main": "src/sparkle.js",
+  "scripts": {
+    "test": "node tests/sparkle.test.js && node tests/listFilter.test.js && node tests/sparkle-cli.test.js",
+    "pretest:integration": "node bin/bake-version.js",
+    "test:integration": "node tests/integration-test.js",
+    "test:cleanup": "node bin/test-cleanup.js",
+    "test:all": "npm run test && npm run test:integration",
+    "release": "npm version patch && npm run pack",
+    "release:minor": "npm version minor && npm run pack",
+    "release:major": "npm version major && npm run pack",
+    "release:rebuild": "npm run pack",
+    "pack": "node bin/prepare-distribution.js",
+    "postinstall": "node bin/postinstall.js",
+    "sparkle": "sparkle-client",
+    "sparkle-daemon": "sparkle-daemon",
+    "sparkle-halt": "sparkle-halt"
+  },
+  "keywords": [
+    "tracking",
+    "dependencies",
+    "git",
+    "daemon",
+    "collaboration"
+  ],
+  "author": "Limitless Knowledge Association",
+  "license": "MIT",
+  "copyright": "Copyright 2025 Limitless Knowledge Association. Open sourced under MIT license.",
+  "files": [
+    "src/",
+    "bin/",
+    "public/",
+    "README.md",
+    "overview.md",
+    "README2.md",
+    "PHASE2_GUIDE.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "sparkle": "file:sparkle-1.0.176.tgz"
+  },
+  "sparkle_config": {
+    "git_branch": "sparkle-branch",
+    "directory": "sparkle-data"
+  }
+}
