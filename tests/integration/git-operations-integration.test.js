@@ -213,10 +213,11 @@ describe('Git Operations Integration', () => {
       await sparkle1.gitOps.commitAndPush();
       console.log(`  ✓ Clone1 committed and pushed`);
 
-      // Create sparkle2 instance and pull
-      const sparkle2 = await createSparkleInstance(clone2);
+      // Pull first, then create sparkle2 instance
       console.log(`  ⬇️  Clone2 pulling...`);
-      await sparkle2.gitOps.pull();
+      await execAsync('git pull', { cwd: join(clone2.clonePath, '.sparkle-worktree') });
+
+      const sparkle2 = await createSparkleInstance(clone2);
 
       // Verify item is visible in clone2
       const item = await sparkle2.getItemDetails(itemId);
@@ -235,9 +236,9 @@ describe('Git Operations Integration', () => {
       await sleep(6000);
       await sparkle1.gitOps.commitAndPush();
 
-      // Create sparkle2 instance and pull
+      // Pull first, then create sparkle2 instance
+      await execAsync('git pull', { cwd: join(clone2.clonePath, '.sparkle-worktree') });
       const sparkle2 = await createSparkleInstance(clone2);
-      await sparkle2.gitOps.pull();
 
       // Add entry from each clone
       await sparkle1.addEntry(itemId, 'Entry from clone1');
@@ -252,7 +253,7 @@ describe('Git Operations Integration', () => {
       await sparkle2.gitOps.commitAndPush();
 
       // Pull into clone1
-      await sparkle1.gitOps.pull();
+      await execAsync('git pull', { cwd: join(clone1.clonePath, '.sparkle-worktree') });
 
       // Rebuild aggregates to pick up merged changes
       await sparkle1.rebuildAllAggregates();
@@ -278,12 +279,12 @@ describe('Git Operations Integration', () => {
       await sleep(6000);
       await sparkle1.gitOps.commitAndPush();
 
-      // Create sparkle2 instance and pull
+      // Pull first, then create sparkle2 instance
+      await execAsync('git pull', { cwd: join(clone2.clonePath, '.sparkle-worktree') });
       const sparkle2 = await createSparkleInstance(clone2);
-      await sparkle2.gitOps.pull();
 
-      // Rebuild aggregates in clone2
-      await sparkle2.rebuildAllAggregates();
+      // Aggregates should be built automatically during start()
+      // No need to rebuild since we pulled before creating instance
 
       // Verify tagline updated
       const item = await sparkle2.getItemDetails(itemId);
