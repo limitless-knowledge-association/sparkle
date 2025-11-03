@@ -56,7 +56,9 @@ export async function launchDaemon(gitRoot, dataDir) {
   const launchStart = Date.now();
   console.error(`[CLI] Launching daemon from: ${gitRoot}`);
 
-  const agentPath = join(__dirname, '..', 'bin', 'sparkle_agent.js');
+  // Use the agent from the installed Sparkle package in the target repo
+  // not the agent from the current working directory
+  const agentPath = join(gitRoot, 'node_modules/sparkle/bin/sparkle_agent.js');
 
   if (!existsSync(agentPath)) {
     throw new Error(`Daemon agent not found at: ${agentPath}`);
