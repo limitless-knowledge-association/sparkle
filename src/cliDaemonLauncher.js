@@ -71,7 +71,8 @@ export async function launchDaemon(gitRoot, dataDir) {
   daemon.unref();
 
   // Wait for daemon to start and write port file
-  const port = await waitForDaemonStart(dataDir, 10000);
+  // Use 30s timeout for test environments where startup can be slower
+  const port = await waitForDaemonStart(dataDir, 30000);
   return port;
 }
 
