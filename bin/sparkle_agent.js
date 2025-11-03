@@ -50,8 +50,32 @@ const isPostInstall = process.argv.includes('--postinstall');
 const isTestMode = process.argv.includes('--test-mode');
 const testId = process.argv.find(arg => arg.startsWith('--test-id='))?.split('=')[1] || null;
 
-// Check if running in keep-alive mode (disable no-client timeout)
-const isKeepAlive = process.argv.includes('--keep-alive');
+// Parse keep-alive mode:
+// - No flag: 60s timeout (browser mode)
+// - --keep-alive: infinite (no timeout, for tests/manual daemon)
+// - --keep-alive=api: 300s timeout (5 min, for CLI API usage)
+const keepAliveArg = process.argv.find(arg => arg.startsWith('--keep-alive'));
+let keepAliveMode = null;  // null = default (60s)
+let noClientTimeoutDuration = 60000; // 60 seconds default
+
+if (keepAliveArg) {
+  if (keepAliveArg === '--keep-alive') {
+    keepAliveMode = 'infinite';
+    noClientTimeoutDuration = null;
+  } else if (keepAliveArg.startsWith('--keep-alive=')) {
+    const mode = keepAliveArg.split('=')[1];
+    if (mode === 'api') {
+      keepAliveMode = 'api';
+      noClientTimeoutDuration = 300000; // 5 minutes
+    } else {
+      console.error(`Unknown keep-alive mode: ${mode}. Use --keep-alive or --keep-alive=api`);
+      process.exit(1);
+    }
+  }
+}
+
+// Legacy support
+const isKeepAlive = keepAliveMode === 'infinite';
 
 // Import HTTP logging (will be initialized in main() if environment vars present)
 import { initHttpLogger, createLogger } from '../src/httpLogger.js';
@@ -155,34 +179,39 @@ async function startLogging() {
 }
 
 /**
- * Start the no-client timeout - agent will exit after 60 seconds with no clients
- * (unless --keep-alive flag is set)
+ * Start the no-client timeout - agent will exit after timeout with no clients
+ * Timeout duration depends on --keep-alive flag:
+ * - No flag: 60s (browser mode)
+ * - --keep-alive=api: 300s (5 min, for CLI)
+ * - --keep-alive: infinite (no timeout)
  */
 function startNoClientTimeout() {
-  // Skip timeout if in keep-alive mode
-  if (isKeepAlive) {
+  // Skip timeout if in infinite keep-alive mode
+  if (noClientTimeoutDuration === null) {
     console.log('⏰ No-client timeout NOT started (keep-alive mode)');
     return;
   }
 
+  const timeoutSeconds = noClientTimeoutDuration / 1000;
+
   // Clear any existing timeout
   if (noClientTimeoutId) {
-    console.log(`⏰ Restarting no-client timeout (old: ${noClientTimeoutId})`);
+    console.log(`⏰ Restarting no-client timeout (${timeoutSeconds}s, old: ${noClientTimeoutId})`);
     clearTimeout(noClientTimeoutId);
   } else {
-    console.log('⏰ Starting no-client timeout (60 seconds)');
+    console.log(`⏰ Starting no-client timeout (${timeoutSeconds} seconds${keepAliveMode === 'api' ? ', API mode' : ''})`);
   }
 
   noClientTimeoutId = setTimeout(() => {
-    console.log('🔴 DAEMON EXIT REASON: No-client timeout (60 seconds elapsed)');
+    console.log(`🔴 DAEMON EXIT REASON: No-client timeout (${timeoutSeconds} seconds elapsed)`);
     console.log(`   - SSE clients: ${sseClients.length}`);
     console.log(`   - Timeout ID was: ${noClientTimeoutId}`);
-    console.log('No clients connected for 60 seconds. Shutting down gracefully...');
+    console.log(`No clients connected for ${timeoutSeconds} seconds. Shutting down gracefully...`);
 
     // Set shutdown flag - this prevents any further SSE broadcasts
     shuttingDown = true;
 
-    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: '60s', sseClients: sseClients.length });
+    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: `${timeoutSeconds}s`, sseClients: sseClients.length, keepAliveMode });
 
     // Clean up intervals
     if (fetchIntervalId) {
@@ -212,7 +241,7 @@ function startNoClientTimeout() {
     } else {
       process.exit(0);
     }
-  }, 60000); // 60 seconds
+  }, noClientTimeoutDuration);
 }
 
 /**
