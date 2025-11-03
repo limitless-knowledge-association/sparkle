@@ -1,6 +1,6 @@
 {
   "name": "sparkle",
-  "version": "1.0.288",
+  "version": "1.0.289",
   "description": "A system to keep track of all the details using git as storage",
   "type": "module",
   "main": "src/sparkle.js",

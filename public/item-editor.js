@@ -560,7 +560,7 @@ class EntriesComponent extends Component {
       for (const entry of data.entries) {
         html += `<li class="item-list-item">`;
         html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
-        html += `<div>${escapeHtml(entry.text)}</div>`;
+        html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
         html += `</li>`;
       }
       html += '</ul>';
@@ -644,7 +644,7 @@ class EntriesComponent extends Component {
       for (const entry of data.entries) {
         html += `<li class="item-list-item">`;
         html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
-        html += `<div>${escapeHtml(entry.text)}</div>`;
+        html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
         html += `</li>`;
       }
       html += '</ul>';

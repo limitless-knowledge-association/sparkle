@@ -504,6 +504,12 @@ textarea {
   margin-bottom: 0;
 }
 
+/* Entry text preserves whitespace and newlines */
+.entry-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 /* ===== Input Group Pattern ===== */
 .input-group {
   display: flex;
