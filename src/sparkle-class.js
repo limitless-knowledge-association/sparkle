@@ -77,10 +77,9 @@ export class Sparkle {
    * @returns {Promise<void>}
    */
   async stop() {
-    // Cancel any pending git commit operations
-    if (this.gitOps && this.gitOps.commitScheduler) {
-      const { cancelScheduledGit } = await import('./gitCommitScheduler.js');
-      cancelScheduledGit();
+    // Cancel any pending git commit operations in GitOperations
+    if (this.gitOps) {
+      this.gitOps.cancelPendingCommit();
     }
 
     this.initialized = false;

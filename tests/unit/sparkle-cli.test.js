@@ -116,35 +116,13 @@ describe('Sparkle CLI', () => {
     await sparkle.addEntry(item1, 'Additional entry for item1');
     console.log(`[SETUP] addEntry: ${Date.now() - stepStart}ms`);
 
-    // Wait for pending git operations to complete by polling
+    // Force immediate push, canceling any debounced timers
     stepStart = Date.now();
-    console.log(`[SETUP] Waiting for git operations to complete...`);
-    const maxWait = 6000;
-    const pollInterval = 100;
-    let waited = 0;
-    while (waited < maxWait) {
-      // Check if there are pending operations
-      const hasPending = sparkle.gitOps.commitScheduler &&
-                         sparkle.gitOps.commitScheduler.hasPendingCommit &&
-                         sparkle.gitOps.commitScheduler.hasPendingCommit();
-      if (!hasPending) {
-        console.log(`[SETUP] Git operations ready after ${waited}ms`);
-        break;
-      }
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-      waited += pollInterval;
-    }
-    if (waited >= maxWait) {
-      console.log(`[SETUP] WARNING: Reached max wait time (${maxWait}ms) for git operations`);
-    }
-    console.log(`[SETUP] Git wait polling: ${Date.now() - stepStart}ms`);
-
-    stepStart = Date.now();
-    await sparkle.gitOps.commitAndPush();
-    console.log(`[SETUP] commitAndPush: ${Date.now() - stepStart}ms`);
+    await sparkle.gitOps.forcePushNow();
+    console.log(`[SETUP] forcePushNow: ${Date.now() - stepStart}ms`);
 
     console.log(`[SETUP] Total setupTestData: ${Date.now() - setupStart}ms`);
-    return { env, dataDir, item1, item2, item3, sparkle };
+    return { env, dataDir, item1, item2, item3 };
   }
 
   describe('Help command', () => {
