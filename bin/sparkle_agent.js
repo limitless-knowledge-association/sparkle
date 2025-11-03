@@ -54,7 +54,9 @@ const testId = process.argv.find(arg => arg.startsWith('--test-id='))?.split('='
 // - No flag: 60s timeout (browser mode)
 // - --keep-alive: infinite (no timeout, for tests/manual daemon)
 // - --keep-alive=api: 300s timeout (5 min, for CLI API usage)
+console.error('[INSTRUMENT] process.argv:', process.argv);
 const keepAliveArg = process.argv.find(arg => arg.startsWith('--keep-alive'));
+console.error('[INSTRUMENT] keepAliveArg:', keepAliveArg);
 let keepAliveMode = null;  // null = default (60s)
 let noClientTimeoutDuration = 60000; // 60 seconds default
 
@@ -62,16 +64,21 @@ if (keepAliveArg) {
   if (keepAliveArg === '--keep-alive') {
     keepAliveMode = 'infinite';
     noClientTimeoutDuration = null;
+    console.error('[INSTRUMENT] Set keepAliveMode to infinite');
   } else if (keepAliveArg.startsWith('--keep-alive=')) {
     const mode = keepAliveArg.split('=')[1];
+    console.error('[INSTRUMENT] Parsed mode from keepAliveArg:', mode);
     if (mode === 'api') {
       keepAliveMode = 'api';
       noClientTimeoutDuration = 300000; // 5 minutes
+      console.error('[INSTRUMENT] Set keepAliveMode to api');
     } else {
       console.error(`Unknown keep-alive mode: ${mode}. Use --keep-alive or --keep-alive=api`);
       process.exit(1);
     }
   }
+} else {
+  console.error('[INSTRUMENT] No keepAliveArg found, keepAliveMode will be null');
 }
 
 // Legacy support
@@ -2001,12 +2008,16 @@ async function main() {
 
       // Auto-open browser only if NOT in API mode
       // API mode (--keep-alive=api) is for CLI commands (cat/inspect), not for browsing
+      console.error('[INSTRUMENT] Browser decision point - keepAliveMode:', keepAliveMode);
+      console.error('[INSTRUMENT] keepAliveMode === "api":', keepAliveMode === 'api');
       if (keepAliveMode === 'api') {
         console.log('Daemon ready in API mode. Use "npx sparkle browser" to open the web interface.');
+        console.error('[INSTRUMENT] Skipping browser open (API mode)');
         if (logger) logger.info('Daemon ready, API mode, no auto-browser launch');
       } else {
         // Normal mode or infinite keep-alive - open browser to ensure at least one client connects
         console.log('Opening browser...');
+        console.error('[INSTRUMENT] Opening browser (not API mode)');
         if (logger) logger.info('Opening browser', { portConflictDetected });
 
         // If port conflict detected, open error page instead of list view
@@ -2018,16 +2029,19 @@ async function main() {
       }
     } else {
       // Not configured yet
+      console.error('[INSTRUMENT] Not configured path - isTestMode:', isTestMode);
       if (logger) logger.info('Not configured, handling based on mode');
       // In test mode, write port to a temp file so tests can find it
       if (isTestMode) {
         const testPortFile = join(gitRoot, '.sparkle-test-port');
         await writeFile(testPortFile, port.toString(), 'utf8');
         console.log('Test mode: skipping browser, waiting for API configuration...');
+        console.error('[INSTRUMENT] Skipping browser (test mode)');
         if (logger) logger.info('Test mode: wrote port to temp file');
       } else {
         // Open browser for configuration
         console.log('Opening browser for configuration...');
+        console.error('[INSTRUMENT] Opening browser for configuration (not configured, not test mode)');
         await openBrowser(`http://localhost:${port}`);
         if (logger) logger.info('Opened browser for configuration');
       }
