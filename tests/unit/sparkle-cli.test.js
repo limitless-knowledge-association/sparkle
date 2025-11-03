@@ -36,6 +36,10 @@ describe('Sparkle CLI', () => {
   let tarballPath;
 
   beforeAll(async () => {
+    // Ensure baseDir exists before starting log server
+    const { mkdir } = await import('fs/promises');
+    await mkdir(baseDir, { recursive: true });
+
     // Start log server
     const testId = 'cli-tests';
     logServerPort = await startLogServer(testId, baseDir);
