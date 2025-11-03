@@ -27,6 +27,15 @@ import {
 
 const execAsync = promisify(exec);
 
+// Helper: Get tarball path for current version
+async function getTarballPath() {
+  const { readFile } = await import('fs/promises');
+  const packageJsonPath = join(process.cwd(), 'package.json');
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  const version = packageJson.version;
+  return join(process.cwd(), `sparkle-${version}.tgz`);
+}
+
 // Helper: Set up test environment with daemon initialization
 async function setupTestEnv(testName, numClones = 1) {
   const testId = createTestId();
@@ -36,7 +45,7 @@ async function setupTestEnv(testName, numClones = 1) {
   const env = await createTestEnvironment(baseDir, testName, numClones, testId);
 
   // Get tarball path
-  const tarballPath = join(process.cwd(), 'sparkle-1.0.153.tgz');
+  const tarballPath = await getTarballPath();
 
   const cloneSetups = [];
 

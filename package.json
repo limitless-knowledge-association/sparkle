@@ -10,7 +10,6 @@
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --selectProjects integration",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --selectProjects unit",
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
-    "test:legacy": "node tests/unit/sparkle.test.js && node tests/unit/listFilter.test.js && node tests/unit/sparkle-cli.test.js",
     "test:cleanup": "node bin/test-cleanup.js",
     "release": "npm version patch && npm run pack",
     "release:minor": "npm version minor && npm run pack",

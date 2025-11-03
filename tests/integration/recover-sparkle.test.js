@@ -22,72 +22,6 @@ import {
 
 const execAsync = promisify(exec);
 
-// Test infrastructure
-class TestRunner {
-  constructor() {
-    this.tests = [];
-    this.passed = 0;
-    this.failed = 0;
-  }
-
-  test(name, fn) {
-    this.tests.push({ name, fn });
-  }
-
-  async run() {
-    console.log(`\n${'='.repeat(70)}`);
-    console.log(`Recover-Sparkle Integration Tests`);
-    console.log(`Running ${this.tests.length} tests...\n`);
-    console.log(`${'='.repeat(70)}\n`);
-
-    // Start log server for all tests
-    const baseDir = join(process.cwd(), '.integration_testing', 'recover-sparkle-tests');
-    const { mkdir } = await import('fs/promises');
-    await mkdir(baseDir, { recursive: true });
-    await startLogServer(GLOBAL_TEST_ID, baseDir);
-
-    for (const { name, fn } of this.tests) {
-      try {
-        console.log(`\n🧪 ${name}`);
-        await fn();
-        this.passed++;
-        console.log(`✅ ${name} PASSED\n`);
-      } catch (error) {
-        this.failed++;
-        console.error(`❌ ${name} FAILED`);
-        console.error(`   Error: ${error.message}`);
-        if (error.stack) {
-          console.error(`   ${error.stack.split('\n').slice(1, 5).join('\n   ')}`);
-        }
-        console.log();
-      }
-    }
-
-    console.log(`${'='.repeat(70)}`);
-    console.log(`Results: ${this.passed} passed, ${this.failed} failed`);
-    console.log(`Test artifacts in .integration_testing/recover-sparkle-tests/`);
-    console.log(`${'='.repeat(70)}\n`);
-
-    process.exit(this.failed > 0 ? 1 : 0);
-  }
-}
-
-// Assertion helpers
-function assert(condition, message) {
-  if (!condition) {
-    throw new Error(message || 'Assertion failed');
-  }
-}
-
-function assertIncludes(text, substring, message) {
-  if (!text.includes(substring)) {
-    throw new Error(message || `Expected text to include "${substring}"`);
-  }
-}
-
-// Global test ID for log server
-const GLOBAL_TEST_ID = createTestId();
-
 // Helper: Set up test environment with daemon initialization
 async function setupTestEnv(testName) {
   const testId = createTestId();
@@ -148,116 +82,113 @@ async function getTarballPath() {
   return join(process.cwd(), `sparkle-${version}.tgz`);
 }
 
-// ====================
-// TESTS
-// ====================
+describe('Recover Sparkle Integration', () => {
+  const GLOBAL_TEST_ID = createTestId();
 
-const runner = new TestRunner();
+  beforeAll(async () => {
+    // Start log server for all tests
+    const baseDir = join(process.cwd(), '.integration_testing', 'recover-sparkle-tests');
+    const { mkdir } = await import('fs/promises');
+    await mkdir(baseDir, { recursive: true });
+    await startLogServer(GLOBAL_TEST_ID, baseDir);
+  }, 60000);
 
-// Test: Detect Git Reference Lock Conflict
-runner.test('Detect Git Reference Lock Conflict', async () => {
-  const env = await setupTestEnv('test-git-ref-lock');
+  test('detects git reference lock conflict', async () => {
+    const env = await setupTestEnv('test-git-ref-lock');
 
-  // Get the current state
-  console.log(`  🔍 Getting current git state...`);
-  const { stdout: currentHead } = await execAsync('git rev-parse HEAD', {
-    cwd: env.worktreePath
-  });
-  const currentHeadSha = currentHead.trim();
-  console.log(`  📌 Current HEAD: ${currentHeadSha.substring(0, 12)}`);
+    // Get the current state
+    console.log(`  🔍 Getting current git state...`);
+    const { stdout: currentHead } = await execAsync('git rev-parse HEAD', {
+      cwd: env.worktreePath
+    });
+    const currentHeadSha = currentHead.trim();
+    console.log(`  📌 Current HEAD: ${currentHeadSha.substring(0, 12)}`);
 
-  const { stdout: currentRemote } = await execAsync('git rev-parse origin/sparkle', {
-    cwd: env.worktreePath
-  });
-  const currentRemoteSha = currentRemote.trim();
-  console.log(`  📌 Current origin/sparkle: ${currentRemoteSha.substring(0, 12)}`);
+    const { stdout: currentRemote } = await execAsync('git rev-parse origin/sparkle', {
+      cwd: env.worktreePath
+    });
+    const currentRemoteSha = currentRemote.trim();
+    console.log(`  📌 Current origin/sparkle: ${currentRemoteSha.substring(0, 12)}`);
 
-  // Make a commit in the worktree and push to advance the remote
-  console.log(`  ✏️  Making a commit in worktree to advance origin/sparkle...`);
-  const testFile = join(env.worktreePath, 'sparkle-data', 'test-file.txt');
-  await writeFile(testFile, 'test content', 'utf8');
-  await execAsync('git add sparkle-data/test-file.txt', { cwd: env.worktreePath });
-  await execAsync('git commit -m "Test commit"', { cwd: env.worktreePath });
-  await execAsync('git push origin sparkle', { cwd: env.worktreePath });
+    // Make a commit in the worktree and push to advance the remote
+    console.log(`  ✏️  Making a commit in worktree to advance origin/sparkle...`);
+    const testFile = join(env.worktreePath, 'sparkle-data', 'test-file.txt');
+    await writeFile(testFile, 'test content', 'utf8');
+    await execAsync('git add sparkle-data/test-file.txt', { cwd: env.worktreePath });
+    await execAsync('git commit -m "Test commit"', { cwd: env.worktreePath });
+    await execAsync('git push origin sparkle', { cwd: env.worktreePath });
 
-  // Get the new remote SHA
-  const { stdout: newRemote } = await execAsync('git rev-parse origin/sparkle', {
-    cwd: env.worktreePath
-  });
-  const newRemoteSha = newRemote.trim();
-  console.log(`  📌 New origin/sparkle after push: ${newRemoteSha.substring(0, 12)}`);
+    // Get the new remote SHA
+    const { stdout: newRemote } = await execAsync('git rev-parse origin/sparkle', {
+      cwd: env.worktreePath
+    });
+    const newRemoteSha = newRemote.trim();
+    console.log(`  📌 New origin/sparkle after push: ${newRemoteSha.substring(0, 12)}`);
 
-  // Get the git common directory (refs are stored in common dir for worktrees)
-  const { stdout: gitCommonDirOutput } = await execAsync('git rev-parse --git-common-dir', {
-    cwd: env.worktreePath
-  });
-  const gitCommonDirRaw = gitCommonDirOutput.trim();
-  // If it's an absolute path, use as-is; otherwise join with worktreePath
-  const gitCommonDir = gitCommonDirRaw.startsWith('/') ? gitCommonDirRaw : join(env.worktreePath, gitCommonDirRaw);
-  const remoteRefPath = join(gitCommonDir, 'refs', 'remotes', 'origin', 'sparkle');
+    // Get the git common directory (refs are stored in common dir for worktrees)
+    const { stdout: gitCommonDirOutput } = await execAsync('git rev-parse --git-common-dir', {
+      cwd: env.worktreePath
+    });
+    const gitCommonDirRaw = gitCommonDirOutput.trim();
+    // If it's an absolute path, use as-is; otherwise join with worktreePath
+    const gitCommonDir = gitCommonDirRaw.startsWith('/') ? gitCommonDirRaw : join(env.worktreePath, gitCommonDirRaw);
+    const remoteRefPath = join(gitCommonDir, 'refs', 'remotes', 'origin', 'sparkle');
 
-  console.log(`  📁 Git common directory: ${gitCommonDir}`);
-  console.log(`  📁 Remote ref path: ${remoteRefPath}`);
+    console.log(`  📁 Git common directory: ${gitCommonDir}`);
+    console.log(`  📁 Remote ref path: ${remoteRefPath}`);
 
-  // Now manually corrupt the remote ref file to point to the OLD value
-  // This simulates the situation where the ref got stuck and git fetch will fail
-  console.log(`  🔧 Corrupting remote ref file to simulate lock conflict...`);
-  await writeFile(remoteRefPath, currentRemoteSha + '\n', 'utf8');
-  console.log(`  ⚠️  Set remote ref file to old SHA: ${currentRemoteSha.substring(0, 12)}`);
+    // Now manually corrupt the remote ref file to point to the OLD value
+    // This simulates the situation where the ref got stuck and git fetch will fail
+    console.log(`  🔧 Corrupting remote ref file to simulate lock conflict...`);
+    await writeFile(remoteRefPath, currentRemoteSha + '\n', 'utf8');
+    console.log(`  ⚠️  Set remote ref file to old SHA: ${currentRemoteSha.substring(0, 12)}`);
 
-  // Verify the ref file was corrupted
-  const { stdout: storedRef } = await execAsync(`cat "${remoteRefPath}"`, {
-    cwd: env.worktreePath
-  });
-  console.log(`  📄 Stored ref file contains: ${storedRef.trim().substring(0, 12)}`);
-  console.log(`  📄 Expected (new SHA): ${newRemoteSha.substring(0, 12)}`);
+    // Verify the ref file was corrupted
+    const { stdout: storedRef } = await execAsync(`cat "${remoteRefPath}"`, {
+      cwd: env.worktreePath
+    });
+    console.log(`  📄 Stored ref file contains: ${storedRef.trim().substring(0, 12)}`);
+    console.log(`  📄 Expected (new SHA): ${newRemoteSha.substring(0, 12)}`);
 
-  // Verify the ref file contains the old SHA (we just wrote it)
-  assert(storedRef.trim() === currentRemoteSha,
-    'Ref file should contain the old SHA');
+    // Verify the ref file contains the old SHA (we just wrote it)
+    expect(storedRef.trim()).toBe(currentRemoteSha);
 
-  // Note: git rev-parse will read from the file and return the corrupted value.
-  // The real-world scenario is that during a fetch, git tries to update this ref
-  // using compare-and-swap, expecting it to be at one value but finding it at another.
-  // Our checkGitRefLock function detects when the file content doesn't match what
-  // git rev-parse returns, which would indicate the ref is in an inconsistent state.
+    // Note: git rev-parse will read from the file and return the corrupted value.
+    // The real-world scenario is that during a fetch, git tries to update this ref
+    // using compare-and-swap, expecting it to be at one value but finding it at another.
+    // Our checkGitRefLock function detects when the file content doesn't match what
+    // git rev-parse returns, which would indicate the ref is in an inconsistent state.
 
-  console.log(`  ✓ Ref file corrupted to simulate the error condition`);
+    console.log(`  ✓ Ref file corrupted to simulate the error condition`);
 
-  // Now run recover-sparkle and verify it detects the issue
-  console.log(`  🔍 Running recover-sparkle to detect the issue...`);
-  const recoverSparklePath = join(process.cwd(), 'bin', 'recover-sparkle.js');
-  const { stdout: recoverOutput } = await execAsync(`node ${recoverSparklePath}`, {
-    cwd: env.clonePath
-  });
+    // Now run recover-sparkle and verify it detects the issue
+    console.log(`  🔍 Running recover-sparkle to detect the issue...`);
+    const recoverSparklePath = join(process.cwd(), 'bin', 'recover-sparkle.js');
+    const { stdout: recoverOutput } = await execAsync(`node ${recoverSparklePath}`, {
+      cwd: env.clonePath
+    });
 
-  console.log(`  📊 Recover-sparkle output:`);
-  console.log(recoverOutput.split('\n').map(line => `     ${line}`).join('\n'));
+    console.log(`  📊 Recover-sparkle output:`);
+    console.log(recoverOutput.split('\n').map(line => `     ${line}`).join('\n'));
 
-  // The key test: verify recover-sparkle runs without error and provides diagnostic info
-  // Note: Since git rev-parse reads from the file, it will return the corrupted value,
-  // so they will match and NO mismatch will be detected in this test scenario.
-  // The real-world scenario that causes the error involves git's internal state
-  // being different from the file, which is hard to simulate in a test.
-  //
-  // What we CAN verify is that recover-sparkle:
-  // 1. Runs successfully
-  // 2. Checks the worktree and branches
-  // 3. Provides the standard cleanup instructions
+    // The key test: verify recover-sparkle runs without error and provides diagnostic info
+    // Note: Since git rev-parse reads from the file, it will return the corrupted value,
+    // so they will match and NO mismatch will be detected in this test scenario.
+    // The real-world scenario that causes the error involves git's internal state
+    // being different from the file, which is hard to simulate in a test.
+    //
+    // What we CAN verify is that recover-sparkle:
+    // 1. Runs successfully
+    // 2. Checks the worktree and branches
+    // 3. Provides the standard cleanup instructions
 
-  assertIncludes(recoverOutput, 'SPARKLE RECOVERY DIAGNOSTIC TOOL',
-    'Should show recovery tool header');
-  assertIncludes(recoverOutput, 'Worktree directory exists',
-    'Should check worktree');
-  assertIncludes(recoverOutput, 'Sparkle worktree registered',
-    'Should check worktree registration');
-  assertIncludes(recoverOutput, 'Complete cleanup instructions',
-    'Should provide cleanup instructions');
+    expect(recoverOutput).toContain('SPARKLE RECOVERY DIAGNOSTIC TOOL');
+    expect(recoverOutput).toContain('Worktree directory exists');
+    expect(recoverOutput).toContain('Sparkle worktree registered');
+    expect(recoverOutput).toContain('Complete cleanup instructions');
 
-  console.log(`  ✓ Recover-sparkle ran successfully and provided diagnostic information`);
-  console.log(`  ℹ️  Note: Ref lock detection requires git internal state mismatch`);
-  console.log(`  ℹ️  which is difficult to simulate in automated tests.`);
+    console.log(`  ✓ Recover-sparkle ran successfully and provided diagnostic information`);
+    console.log(`  ℹ️  Note: Ref lock detection requires git internal state mismatch`);
+    console.log(`  ℹ️  which is difficult to simulate in automated tests.`);
+  }, 90000); // 90 second timeout
 });
-
-// Run all tests
-runner.run();
