@@ -68,32 +68,20 @@ export async function launchDaemon(gitRoot, dataDir) {
   console.error(`[CLI] Spawning daemon process...`);
 
   // Start daemon in background with --keep-alive=api flag (5-min timeout)
-  // Add --test-mode if SPARKLE_TEST_MODE env var is set (prevents browser opening in tests)
   // spawnProcess from execUtils automatically hides windows on Windows
   const spawnStart = Date.now();
   const args = ['--keep-alive=api'];
-  if (process.env.SPARKLE_TEST_MODE) {
-    args.push('--test-mode');
-    console.error(`[CLI] Test mode enabled - browser will not open`);
-  }
-  // Create log file for daemon output (for debugging)
-  const { createWriteStream } = await import('fs');
-  const daemonLogPath = join(dataDir, 'daemon-startup.log');
-  const logStream = createWriteStream(daemonLogPath, { flags: 'a' });
-  console.error(`[CLI] Daemon logs will be written to: ${daemonLogPath}`);
+  console.error(`[CLI] Spawning daemon with args:`, args);
 
   const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
-    stdio: ['ignore', logStream, logStream] // Redirect stdout and stderr to log file
+    stdio: ['ignore', 'inherit', 'inherit'] // Inherit stderr for debugging, ignore stdin/stdout
   });
   console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
   // Detach the daemon so it continues after CLI exits
   daemon.unref();
-
-  // Close log stream after daemon is detached (daemon has its own handle)
-  logStream.end();
 
   // Wait for daemon to start and write port file
   // Use 30s timeout for test environments where startup can be slower
