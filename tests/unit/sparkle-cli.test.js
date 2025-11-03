@@ -3,45 +3,116 @@
  *
  * Unit tests for Sparkle CLI tool (bin/sparkle.js)
  * Tests: help, cat, inspect, browser commands
+ *
+ * NOTE: These tests use full integration test infrastructure since the CLI
+ * now uses the daemon under the covers, which requires a full Sparkle installation.
  */
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
-import { unit_test_setup } from '../helpers/test-helpers.js';
-import { Sparkle } from '../../src/sparkle-class.js';
+import { join } from 'path';
+import {
+  startLogServer,
+  stopLogServer,
+  createTestEnvironment,
+  getTarballPath,
+  installSparkle,
+  initializeSparkle,
+  cleanupEnvironment,
+  createTestId
+} from '../helpers/test-helpers.js';
+import { makeApiRequest } from '../../src/daemonClient.js';
+import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
 
 const execAsync = promisify(exec);
 
 // Path to CLI tool
 const CLI_PATH = fileURLToPath(new URL('../../bin/sparkle.js', import.meta.url));
 
-/**
- * Setup test environment with Sparkle data and sample items
- */
-async function setupTestData(testName = 'cli-test') {
-  const testDir = await unit_test_setup(import.meta.url, testName);
-  const sparkle = new Sparkle(testDir);
-  await sparkle.start();
-
-  // Create test items
-  const item1 = await sparkle.createItem('Test item 1', 'incomplete', 'First test item');
-  const item2 = await sparkle.createItem('Test item 2', 'incomplete', 'Second test item');
-  const item3 = await sparkle.createItem('Test item 3', 'incomplete', 'Third test item');
-
-  // Mark item2 as completed
-  await sparkle.updateStatus(item2, 'completed', 'Item completed');
-
-  // Add a dependency (item3 depends on item2)
-  await sparkle.addDependency(item3, item2);
-
-  // Add an entry to item1
-  await sparkle.addEntry(item1, 'Additional entry for item1');
-
-  return { testDir, item1, item2, item3 };
-}
-
 describe('Sparkle CLI', () => {
+  const baseDir = join(process.cwd(), '.integration_testing', 'cli-tests');
+  let logServerPort;
+  let tarballPath;
+
+  beforeAll(async () => {
+    // Start log server
+    const testId = 'cli-tests';
+    logServerPort = await startLogServer(testId, baseDir);
+
+    // Get tarball path
+    tarballPath = await getTarballPath();
+  });
+
+  afterAll(async () => {
+    await stopLogServer();
+  });
+
+  /**
+   * Setup test environment with Sparkle installation and sample items
+   */
+  async function setupTestData(testName = 'cli-test') {
+    const testId = createTestId();
+    const env = await createTestEnvironment(baseDir, testName, 1, testId);
+    const clonePath = env.clones[0];
+
+    // Install and initialize Sparkle
+    await installSparkle(clonePath, tarballPath);
+    await initializeSparkle(clonePath);
+
+    // Get data directory path
+    const dataDir = join(clonePath, '.sparkle-worktree', 'sparkle-data');
+
+    // Ensure daemon is running and create test items via daemon API
+    const port = await ensureDaemon(dataDir);
+
+    // Create test items via daemon
+    const item1Response = await makeApiRequest(port, '/api/createItem', 'POST', {
+      tagline: 'Test item 1',
+      status: 'incomplete',
+      description: 'First test item'
+    });
+    const item1 = item1Response.itemId;
+
+    const item2Response = await makeApiRequest(port, '/api/createItem', 'POST', {
+      tagline: 'Test item 2',
+      status: 'incomplete',
+      description: 'Second test item'
+    });
+    const item2 = item2Response.itemId;
+
+    const item3Response = await makeApiRequest(port, '/api/createItem', 'POST', {
+      tagline: 'Test item 3',
+      status: 'incomplete',
+      description: 'Third test item'
+    });
+    const item3 = item3Response.itemId;
+
+    // Mark item2 as completed
+    await makeApiRequest(port, '/api/updateStatus', 'POST', {
+      itemId: item2,
+      newStatus: 'completed',
+      logEntry: 'Item completed'
+    });
+
+    // Add a dependency (item3 depends on item2)
+    await makeApiRequest(port, '/api/addDependency', 'POST', {
+      itemId: item3,
+      dependencyId: item2
+    });
+
+    // Add an entry to item1
+    await makeApiRequest(port, '/api/addEntry', 'POST', {
+      itemId: item1,
+      entryText: 'Additional entry for item1'
+    });
+
+    // Wait a bit for daemon to commit
+    await new Promise(resolve => setTimeout(resolve, 8000));
+
+    return { env, dataDir, item1, item2, item3, port };
+  }
+
   describe('Help command', () => {
     test('shows help with no args', async () => {
       const { stdout } = await execAsync(`node ${CLI_PATH}`);
@@ -69,108 +140,136 @@ describe('Sparkle CLI', () => {
 
   describe('Cat command', () => {
     test('displays item details correctly', async () => {
-      const { testDir, item1 } = await setupTestData('cat-basic');
+      const { env, dataDir, item1 } = await setupTestData('cat-basic');
 
-      const { stdout, stderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${testDir}`);
+      try {
+        const { stdout, stderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
 
-      expect(stdout).toContain(`Item: ${item1}`);
-      expect(stdout).toContain('Test item 1');
-      expect(stdout).toContain('Status:');
-      expect(stdout).toContain('Entries');
-      expect(stdout).toContain('Additional entry for item1');
+        expect(stdout).toContain(`Item: ${item1}`);
+        expect(stdout).toContain('Test item 1');
+        expect(stdout).toContain('Status:');
+        expect(stdout).toContain('Entries');
+        expect(stdout).toContain('Additional entry for item1');
 
-      // Verify timing logs are present
-      expect(stderr).toContain('[CLI]');
-      expect(stderr).toContain('ms');
-    }, 30000); // 30s timeout for daemon startup
+        // Verify timing logs are present
+        expect(stderr).toContain('[CLI]');
+        expect(stderr).toContain('ms');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
 
     test('displays dependencies correctly', async () => {
-      const { testDir, item2, item3 } = await setupTestData('cat-dependencies');
+      const { env, dataDir, item2, item3 } = await setupTestData('cat-dependencies');
 
-      const { stdout } = await execAsync(`node ${CLI_PATH} cat ${item3} ${testDir}`);
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} cat ${item3} ${dataDir}`);
 
-      expect(stdout).toContain('Dependencies');
-      expect(stdout).toContain(item2);
-      expect(stdout).toContain('Test item 2');
-      expect(stdout).toContain('[completed]');
-    }, 30000);
+        expect(stdout).toContain('Dependencies');
+        expect(stdout).toContain(item2);
+        expect(stdout).toContain('Test item 2');
+        expect(stdout).toContain('[completed]');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
 
     test('handles invalid item ID', async () => {
-      const { testDir } = await setupTestData('cat-invalid');
+      const { env, dataDir } = await setupTestData('cat-invalid');
 
-      await expect(
-        execAsync(`node ${CLI_PATH} cat 99999999 ${testDir}`)
-      ).rejects.toMatchObject({
-        stderr: expect.stringContaining('Error:')
-      });
-    }, 30000);
+      try {
+        await expect(
+          execAsync(`node ${CLI_PATH} cat 99999999 ${dataDir}`)
+        ).rejects.toMatchObject({
+          stderr: expect.stringContaining('Error:')
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
 
     test('validates item ID format', async () => {
-      const { testDir } = await setupTestData('cat-malformed');
+      const { env, dataDir } = await setupTestData('cat-malformed');
 
-      await expect(
-        execAsync(`node ${CLI_PATH} cat abc ${testDir}`)
-      ).rejects.toMatchObject({
-        stderr: expect.stringContaining('Invalid item ID')
-      });
-    }, 30000);
+      try {
+        await expect(
+          execAsync(`node ${CLI_PATH} cat abc ${dataDir}`)
+        ).rejects.toMatchObject({
+          stderr: expect.stringContaining('Invalid item ID')
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
   });
 
   describe('Inspect command', () => {
     test('displays full dependency chains', async () => {
-      const { testDir, item2, item3 } = await setupTestData('inspect-basic');
+      const { env, dataDir, item2, item3 } = await setupTestData('inspect-basic');
 
-      const { stdout, stderr } = await execAsync(`node ${CLI_PATH} inspect ${item3} ${testDir}`);
+      try {
+        const { stdout, stderr } = await execAsync(`node ${CLI_PATH} inspect ${item3} ${dataDir}`);
 
-      // Verify output includes anchor item
-      expect(stdout).toContain('INSPECTOR VIEW');
-      expect(stdout).toContain(`Anchor Item: ${item3}`);
-      expect(stdout).toContain('ANCHOR');
-      expect(stdout).toContain('Test item 3');
+        // Verify output includes anchor item
+        expect(stdout).toContain('INSPECTOR VIEW');
+        expect(stdout).toContain(`Anchor Item: ${item3}`);
+        expect(stdout).toContain('ANCHOR');
+        expect(stdout).toContain('Test item 3');
 
-      // Verify dependencies section
-      expect(stdout).toContain('DEPENDENCIES');
-      expect(stdout).toContain('DEPENDENCY');
-      expect(stdout).toContain(item2);
-      expect(stdout).toContain('Test item 2');
+        // Verify dependencies section
+        expect(stdout).toContain('DEPENDENCIES');
+        expect(stdout).toContain('DEPENDENCY');
+        expect(stdout).toContain(item2);
+        expect(stdout).toContain('Test item 2');
 
-      // Verify dependents section
-      expect(stdout).toContain('DEPENDENTS');
+        // Verify dependents section
+        expect(stdout).toContain('DEPENDENTS');
 
-      // Verify timing logs
-      expect(stderr).toContain('[CLI]');
-      expect(stderr).toContain('Inspect command');
-    }, 30000);
+        // Verify timing logs
+        expect(stderr).toContain('[CLI]');
+        expect(stderr).toContain('Inspect command');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
 
     test('displays dependents correctly', async () => {
-      const { testDir, item2, item3 } = await setupTestData('inspect-dependents');
+      const { env, dataDir, item2, item3 } = await setupTestData('inspect-dependents');
 
-      // Inspect item2, which is depended on by item3
-      const { stdout } = await execAsync(`node ${CLI_PATH} inspect ${item2} ${testDir}`);
+      try {
+        // Inspect item2, which is depended on by item3
+        const { stdout } = await execAsync(`node ${CLI_PATH} inspect ${item2} ${dataDir}`);
 
-      expect(stdout).toContain('DEPENDENTS');
+        expect(stdout).toContain('DEPENDENTS');
 
-      // Check if there are dependents or if it says "No dependents"
-      if (stdout.includes('No dependents')) {
-        // This is expected - dependents may not be calculated yet
-        console.log('⊘ Skipping dependents check (aggregate may not have reverse dependencies yet)');
-        return;
+        // Check if there are dependents or if it says "No dependents"
+        if (stdout.includes('No dependents')) {
+          // This is expected - dependents may not be calculated yet
+          console.log('⊘ Skipping dependents check (aggregate may not have reverse dependencies yet)');
+          return;
+        }
+
+        expect(stdout).toContain('DEPENDENT');
+        expect(stdout).toContain(item3);
+        expect(stdout).toContain('Test item 3');
+      } finally {
+        await cleanupEnvironment(env.testDir);
       }
-
-      expect(stdout).toContain('DEPENDENT');
-      expect(stdout).toContain(item3);
-      expect(stdout).toContain('Test item 3');
-    }, 30000);
+    }, 60000);
 
     test('handles invalid item ID', async () => {
-      const { testDir } = await setupTestData('inspect-invalid');
+      const { env, dataDir } = await setupTestData('inspect-invalid');
 
-      await expect(
-        execAsync(`node ${CLI_PATH} inspect 99999999 ${testDir}`)
-      ).rejects.toMatchObject({
-        stderr: expect.stringContaining('Error:')
-      });
-    }, 30000);
+      try {
+        await expect(
+          execAsync(`node ${CLI_PATH} inspect 99999999 ${dataDir}`)
+        ).rejects.toMatchObject({
+          stderr: expect.stringContaining('Error:')
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
   });
 
   describe('Error handling', () => {
@@ -185,33 +284,34 @@ describe('Sparkle CLI', () => {
 
   describe('Timing logs', () => {
     test('includes comprehensive timing information', async () => {
-      const { testDir, item1 } = await setupTestData('timing-logs');
+      const { env, dataDir, item1 } = await setupTestData('timing-logs');
 
-      const { stderr: catStderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${testDir}`);
-      const { stderr: inspectStderr } = await execAsync(`node ${CLI_PATH} inspect ${item1} ${testDir}`);
+      try {
+        const { stderr: catStderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        const { stderr: inspectStderr } = await execAsync(`node ${CLI_PATH} inspect ${item1} ${dataDir}`);
 
-      // Verify timing logs for cat command
-      expect(catStderr).toContain('[CLI]');
-      expect(catStderr).toContain('ms');
-      expect(catStderr).toContain('Determining data directory');
-      expect(catStderr).toContain('Initializing Sparkle');
-      expect(catStderr).toContain('Fetched item details');
-      expect(catStderr).toContain('total');
+        // Verify timing logs for cat command
+        expect(catStderr).toContain('[CLI]');
+        expect(catStderr).toContain('ms');
+        expect(catStderr).toContain('Determining data directory');
+        expect(catStderr).toContain('Fetched item details');
+        expect(catStderr).toContain('total');
 
-      // Verify timing logs for inspect command
-      expect(inspectStderr).toContain('[CLI]');
-      expect(inspectStderr).toContain('ms');
-      expect(inspectStderr).toContain('Determining data directory');
-      expect(inspectStderr).toContain('Initializing Sparkle');
-      expect(inspectStderr).toContain('total');
-    }, 60000); // 60s timeout - runs two CLI commands
+        // Verify timing logs for inspect command
+        expect(inspectStderr).toContain('[CLI]');
+        expect(inspectStderr).toContain('ms');
+        expect(inspectStderr).toContain('Determining data directory');
+        expect(inspectStderr).toContain('total');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 90000); // 90s timeout - runs two CLI commands
   });
 
   describe.skip('Configuration resolution', () => {
     test('uses package.json config', async () => {
       // This would require setting up a full git repo with package.json
-      // Skipping for now as it requires more complex setup
-      expect(true).toBe(true);
+      // Skipped for now - covered by integration tests
     });
   });
 });
