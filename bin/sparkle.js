@@ -30,6 +30,8 @@ import { fileURLToPath } from 'url';
 import { getGitRoot } from '../src/gitBranchOps.js';
 import { Sparkle } from '../src/sparkle-class.js';
 import { spawnProcess } from '../src/execUtils.js';
+import { ensureDaemon } from '../src/cliDaemonLauncher.js';
+import { makeApiRequest } from '../src/daemonClient.js';
 
 const command = process.argv[2];
 const arg1 = process.argv[3];
@@ -137,15 +139,15 @@ async function catCommand(itemId, location) {
 
   console.error(`[CLI] Cat command for item: ${itemId}`);
 
-  // Get data directory and initialize
+  // Get data directory and ensure daemon is running
   const dataDir = await getDataDirectory(location);
-  const sparkle = await initializeSparkle(dataDir);
+  const port = await ensureDaemon(dataDir);
 
-  // Get item details
+  // Get item details via daemon API
   const fetchStartTime = Date.now();
-  const details = await sparkle.getItemDetails(itemId);
+  const details = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
   const fetchDuration = Date.now() - fetchStartTime;
-  console.error(`[CLI] Fetched item details (${fetchDuration}ms)`);
+  console.error(`[CLI] Fetched item details via daemon (${fetchDuration}ms)`);
 
   // Display item
   console.log('');
@@ -189,7 +191,7 @@ async function catCommand(itemId, location) {
     const depsStartTime = Date.now();
     for (const depId of details.dependencies) {
       try {
-        const depDetails = await sparkle.getItemDetails(depId);
+        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
         const status = depDetails.status === 'completed' ? '✓' : '○';
         const kind = depDetails.status === 'completed' ? 'completed' : 'incomplete';
         console.log(`  ${status} ${depId} [${kind}]${depDetails.tagline ? ': ' + depDetails.tagline : ''}`);
@@ -198,7 +200,7 @@ async function catCommand(itemId, location) {
       }
     }
     const depsDuration = Date.now() - depsStartTime;
-    console.error(`[CLI] Fetched ${details.dependencies.length} dependencies (${depsDuration}ms)`);
+    console.error(`[CLI] Fetched ${details.dependencies.length} dependencies via daemon (${depsDuration}ms)`);
   }
 
   // Entries
@@ -275,15 +277,15 @@ async function inspectCommand(itemId, location) {
 
   console.error(`[CLI] Inspect command for item: ${itemId}`);
 
-  // Get data directory and initialize
+  // Get data directory and ensure daemon is running
   const dataDir = await getDataDirectory(location);
-  const sparkle = await initializeSparkle(dataDir);
+  const port = await ensureDaemon(dataDir);
 
-  // Get the anchor item
+  // Get the anchor item via daemon API
   const fetchStartTime = Date.now();
-  const anchorDetails = await sparkle.getItemDetails(itemId);
+  const anchorDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
   const fetchDuration = Date.now() - fetchStartTime;
-  console.error(`[CLI] Fetched anchor item (${fetchDuration}ms)`);
+  console.error(`[CLI] Fetched anchor item via daemon (${fetchDuration}ms)`);
 
   console.log('');
   console.log('═'.repeat(80));
@@ -303,7 +305,7 @@ async function inspectCommand(itemId, location) {
     const depsStartTime = Date.now();
     for (const depId of anchorDetails.dependencies) {
       try {
-        const depDetails = await sparkle.getItemDetails(depId);
+        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
         displayItem(depDetails, 'DEPENDENCY');
       } catch (error) {
         console.log('');
@@ -314,7 +316,7 @@ async function inspectCommand(itemId, location) {
       }
     }
     const depsDuration = Date.now() - depsStartTime;
-    console.error(`[CLI] Fetched ${anchorDetails.dependencies.length} dependencies (${depsDuration}ms)`);
+    console.error(`[CLI] Fetched ${anchorDetails.dependencies.length} dependencies via daemon (${depsDuration}ms)`);
   } else {
     console.log('');
     console.log('═'.repeat(80));
@@ -333,7 +335,7 @@ async function inspectCommand(itemId, location) {
     const deptsStartTime = Date.now();
     for (const depId of anchorDetails.dependents) {
       try {
-        const depDetails = await sparkle.getItemDetails(depId);
+        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
         displayItem(depDetails, 'DEPENDENT');
       } catch (error) {
         console.log('');
@@ -344,7 +346,7 @@ async function inspectCommand(itemId, location) {
       }
     }
     const deptsDuration = Date.now() - deptsStartTime;
-    console.error(`[CLI] Fetched ${anchorDetails.dependents.length} dependents (${deptsDuration}ms)`);
+    console.error(`[CLI] Fetched ${anchorDetails.dependents.length} dependents via daemon (${deptsDuration}ms)`);
   } else {
     console.log('');
     console.log('═'.repeat(80));
