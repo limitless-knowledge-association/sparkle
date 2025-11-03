@@ -36,6 +36,9 @@ describe('Sparkle CLI', () => {
   let tarballPath;
 
   beforeAll(async () => {
+    // Set test mode env var to prevent daemons from opening browser
+    process.env.SPARKLE_TEST_MODE = 'true';
+
     // Ensure baseDir exists before starting log server
     const { mkdir } = await import('fs/promises');
     await mkdir(baseDir, { recursive: true });

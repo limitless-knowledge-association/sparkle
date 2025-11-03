@@ -68,9 +68,15 @@ export async function launchDaemon(gitRoot, dataDir) {
   console.error(`[CLI] Spawning daemon process...`);
 
   // Start daemon in background with --keep-alive=api flag (5-min timeout)
+  // Add --test-mode if SPARKLE_TEST_MODE env var is set (prevents browser opening in tests)
   // spawnProcess from execUtils automatically hides windows on Windows
   const spawnStart = Date.now();
-  const daemon = spawnProcess(process.execPath, [agentPath, '--keep-alive=api'], {
+  const args = ['--keep-alive=api'];
+  if (process.env.SPARKLE_TEST_MODE) {
+    args.push('--test-mode');
+    console.error(`[CLI] Test mode enabled - browser will not open`);
+  }
+  const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
     stdio: 'ignore' // Daemon manages its own logging
