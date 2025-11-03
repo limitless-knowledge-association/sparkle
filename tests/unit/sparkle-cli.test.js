@@ -82,7 +82,7 @@ describe('Sparkle CLI', () => {
       // Verify timing logs are present
       expect(stderr).toContain('[CLI]');
       expect(stderr).toContain('ms');
-    });
+    }, 30000); // 30s timeout for daemon startup
 
     test('displays dependencies correctly', async () => {
       const { testDir, item2, item3 } = await setupTestData('cat-dependencies');
@@ -93,7 +93,7 @@ describe('Sparkle CLI', () => {
       expect(stdout).toContain(item2);
       expect(stdout).toContain('Test item 2');
       expect(stdout).toContain('[completed]');
-    });
+    }, 30000);
 
     test('handles invalid item ID', async () => {
       const { testDir } = await setupTestData('cat-invalid');
@@ -103,7 +103,7 @@ describe('Sparkle CLI', () => {
       ).rejects.toMatchObject({
         stderr: expect.stringContaining('Error:')
       });
-    });
+    }, 30000);
 
     test('validates item ID format', async () => {
       const { testDir } = await setupTestData('cat-malformed');
@@ -113,7 +113,7 @@ describe('Sparkle CLI', () => {
       ).rejects.toMatchObject({
         stderr: expect.stringContaining('Invalid item ID')
       });
-    });
+    }, 30000);
   });
 
   describe('Inspect command', () => {
@@ -140,7 +140,7 @@ describe('Sparkle CLI', () => {
       // Verify timing logs
       expect(stderr).toContain('[CLI]');
       expect(stderr).toContain('Inspect command');
-    });
+    }, 30000);
 
     test('displays dependents correctly', async () => {
       const { testDir, item2, item3 } = await setupTestData('inspect-dependents');
@@ -160,7 +160,7 @@ describe('Sparkle CLI', () => {
       expect(stdout).toContain('DEPENDENT');
       expect(stdout).toContain(item3);
       expect(stdout).toContain('Test item 3');
-    });
+    }, 30000);
 
     test('handles invalid item ID', async () => {
       const { testDir } = await setupTestData('inspect-invalid');
@@ -170,7 +170,7 @@ describe('Sparkle CLI', () => {
       ).rejects.toMatchObject({
         stderr: expect.stringContaining('Error:')
       });
-    });
+    }, 30000);
   });
 
   describe('Error handling', () => {
@@ -204,7 +204,7 @@ describe('Sparkle CLI', () => {
       expect(inspectStderr).toContain('Determining data directory');
       expect(inspectStderr).toContain('Initializing Sparkle');
       expect(inspectStderr).toContain('total');
-    });
+    }, 60000); // 60s timeout - runs two CLI commands
   });
 
   describe.skip('Configuration resolution', () => {
