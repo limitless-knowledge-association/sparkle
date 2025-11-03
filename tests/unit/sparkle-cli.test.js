@@ -12,6 +12,8 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
+import { readFile } from 'fs/promises';
 import {
   startLogServer,
   stopLogServer,
@@ -22,8 +24,6 @@ import {
   cleanupEnvironment,
   createTestId
 } from '../helpers/test-helpers.js';
-import { makeApiRequest } from '../../src/daemonClient.js';
-import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
 
 const execAsync = promisify(exec);
 
@@ -54,6 +54,7 @@ describe('Sparkle CLI', () => {
 
   /**
    * Setup test environment with Sparkle installation and sample items
+   * Creates items using library directly (not daemon) to avoid daemon startup delays
    */
   async function setupTestData(testName = 'cli-test') {
     const testId = createTestId();
@@ -67,54 +68,33 @@ describe('Sparkle CLI', () => {
     // Get data directory path
     const dataDir = join(clonePath, '.sparkle-worktree', 'sparkle-data');
 
-    // Ensure daemon is running and create test items via daemon API
-    const port = await ensureDaemon(dataDir);
+    // Import Sparkle class from the installed package
+    const sparklePath = join(clonePath, 'node_modules/sparkle/src/sparkle-class.js');
+    const { Sparkle } = await import(pathToFileURL(sparklePath).href);
 
-    // Create test items via daemon
-    const item1Response = await makeApiRequest(port, '/api/createItem', 'POST', {
-      tagline: 'Test item 1',
-      status: 'incomplete',
-      description: 'First test item'
-    });
-    const item1 = item1Response.itemId;
+    // Create Sparkle instance and start it
+    const sparkle = new Sparkle(dataDir);
+    await sparkle.start();
 
-    const item2Response = await makeApiRequest(port, '/api/createItem', 'POST', {
-      tagline: 'Test item 2',
-      status: 'incomplete',
-      description: 'Second test item'
-    });
-    const item2 = item2Response.itemId;
-
-    const item3Response = await makeApiRequest(port, '/api/createItem', 'POST', {
-      tagline: 'Test item 3',
-      status: 'incomplete',
-      description: 'Third test item'
-    });
-    const item3 = item3Response.itemId;
+    // Create test items using library directly
+    const item1 = await sparkle.createItem('Test item 1', 'incomplete', 'First test item');
+    const item2 = await sparkle.createItem('Test item 2', 'incomplete', 'Second test item');
+    const item3 = await sparkle.createItem('Test item 3', 'incomplete', 'Third test item');
 
     // Mark item2 as completed
-    await makeApiRequest(port, '/api/updateStatus', 'POST', {
-      itemId: item2,
-      newStatus: 'completed',
-      logEntry: 'Item completed'
-    });
+    await sparkle.updateStatus(item2, 'completed', 'Item completed');
 
     // Add a dependency (item3 depends on item2)
-    await makeApiRequest(port, '/api/addDependency', 'POST', {
-      itemId: item3,
-      dependencyId: item2
-    });
+    await sparkle.addDependency(item3, item2);
 
     // Add an entry to item1
-    await makeApiRequest(port, '/api/addEntry', 'POST', {
-      itemId: item1,
-      entryText: 'Additional entry for item1'
-    });
+    await sparkle.addEntry(item1, 'Additional entry for item1');
 
-    // Wait a bit for daemon to commit
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    // Commit the changes
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    await sparkle.gitOps.commitAndPush();
 
-    return { env, dataDir, item1, item2, item3, port };
+    return { env, dataDir, item1, item2, item3 };
   }
 
   describe('Help command', () => {
