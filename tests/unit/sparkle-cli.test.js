@@ -143,6 +143,11 @@ describe('Sparkle CLI', () => {
     await sparkle.gitOps.commitAndPush();
     console.log(`[SETUP] commitAndPush: ${Date.now() - stepStart}ms`);
 
+    // Stop the Sparkle instance to clean up resources (file watchers, etc.)
+    stepStart = Date.now();
+    await sparkle.stop();
+    console.log(`[SETUP] sparkle.stop(): ${Date.now() - stepStart}ms`);
+
     console.log(`[SETUP] Total setupTestData: ${Date.now() - setupStart}ms`);
     return { env, dataDir, item1, item2, item3 };
   }
