@@ -213,11 +213,10 @@ describe('Git Operations Integration', () => {
       await sparkle1.gitOps.commitAndPush();
       console.log(`  ✓ Clone1 committed and pushed`);
 
-      // Pull in clone2
-      console.log(`  ⬇️  Clone2 pulling...`);
-      await execAsync('git pull', { cwd: clone2.clonePath });
-
+      // Create sparkle2 instance and pull
       const sparkle2 = await createSparkleInstance(clone2);
+      console.log(`  ⬇️  Clone2 pulling...`);
+      await sparkle2.gitOps.pull();
 
       // Verify item is visible in clone2
       const item = await sparkle2.getItemDetails(itemId);
@@ -236,10 +235,9 @@ describe('Git Operations Integration', () => {
       await sleep(6000);
       await sparkle1.gitOps.commitAndPush();
 
-      // Pull into clone2
-      await execAsync('git pull', { cwd: clone2.clonePath });
-
+      // Create sparkle2 instance and pull
       const sparkle2 = await createSparkleInstance(clone2);
+      await sparkle2.gitOps.pull();
 
       // Add entry from each clone
       await sparkle1.addEntry(itemId, 'Entry from clone1');
@@ -254,7 +252,7 @@ describe('Git Operations Integration', () => {
       await sparkle2.gitOps.commitAndPush();
 
       // Pull into clone1
-      await execAsync('git pull', { cwd: clone1.clonePath });
+      await sparkle1.gitOps.pull();
 
       // Rebuild aggregates to pick up merged changes
       await sparkle1.rebuildAllAggregates();
@@ -280,10 +278,9 @@ describe('Git Operations Integration', () => {
       await sleep(6000);
       await sparkle1.gitOps.commitAndPush();
 
-      // Pull into clone2
-      await execAsync('git pull', { cwd: clone2.clonePath });
-
+      // Create sparkle2 instance and pull
       const sparkle2 = await createSparkleInstance(clone2);
+      await sparkle2.gitOps.pull();
 
       // Rebuild aggregates in clone2
       await sparkle2.rebuildAllAggregates();
