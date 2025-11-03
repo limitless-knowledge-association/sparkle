@@ -89,7 +89,7 @@ class DependencyManagerModal {
    */
   setupEventHandlers() {
     // Close button
-    const closeBtn = this.element.querySelector('.dep-manager-close');
+    const closeBtn = this.element.querySelector('.sparkle-modal-close');
     closeBtn.addEventListener('click', () => this.close());
 
     // Cancel button (same behavior as ESC key)
