@@ -42,9 +42,9 @@ describe('Daemon Cross-Clone Synchronization', () => {
   let tarballPath;
 
   beforeAll(async () => {
-    // Start log server
-    const logDir = baseDir;
-    logServerPort = await startLogServer(logDir);
+    // Start log server (testId, baseDir)
+    const testId = 'daemon-cross-clone-sync';
+    logServerPort = await startLogServer(testId, baseDir);
     console.log(`Log server started on port ${logServerPort}`);
 
     // Get tarball path
