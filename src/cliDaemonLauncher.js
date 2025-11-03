@@ -170,7 +170,14 @@ export async function ensureDaemon(dataDir) {
 
   // Need to launch a new daemon
   console.error(`[CLI] Starting daemon in API mode...`);
-  const gitRoot = await getGitRoot();
+
+  // Derive git root from dataDir
+  // dataDir is typically: /path/to/repo/.sparkle-worktree/sparkle-data
+  // We need: /path/to/repo
+  const { dirname } = await import('path');
+  const worktreePath = dirname(dataDir); // Remove sparkle-data
+  const gitRoot = dirname(worktreePath);  // Remove .sparkle-worktree
+
   const port = await launchDaemon(gitRoot, dataDir);
   console.error(`[CLI] Daemon started on port ${port}`);
   return port;
