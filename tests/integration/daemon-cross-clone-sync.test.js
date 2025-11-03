@@ -42,6 +42,10 @@ describe('Daemon Cross-Clone Synchronization', () => {
   let tarballPath;
 
   beforeAll(async () => {
+    // Ensure baseDir exists before starting log server
+    const { mkdir } = await import('fs/promises');
+    await mkdir(baseDir, { recursive: true });
+
     // Start log server (testId, baseDir)
     const testId = 'daemon-cross-clone-sync';
     logServerPort = await startLogServer(testId, baseDir);
