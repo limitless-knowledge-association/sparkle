@@ -1999,9 +1999,13 @@ async function main() {
         if (logger) logger.warn('Background initial fetch failed', { error: error.message });
       });
 
-      // Open browser to ensure at least one client connects (keeps daemon alive)
-      // Skip browser in test mode (tests will connect via API)
-      if (!isTestMode) {
+      // Auto-open browser only if NOT in API mode
+      // API mode (--keep-alive=api) is for CLI commands (cat/inspect), not for browsing
+      if (keepAliveMode === 'api') {
+        console.log('Daemon ready in API mode. Use "npx sparkle browser" to open the web interface.');
+        if (logger) logger.info('Daemon ready, API mode, no auto-browser launch');
+      } else {
+        // Normal mode or infinite keep-alive - open browser to ensure at least one client connects
         console.log('Opening browser...');
         if (logger) logger.info('Opening browser', { portConflictDetected });
 
@@ -2011,8 +2015,6 @@ async function main() {
         } else {
           await openBrowser(`http://localhost:${port}`);
         }
-      } else {
-        if (logger) logger.info('Test mode: skipping browser');
       }
     } else {
       // Not configured yet
