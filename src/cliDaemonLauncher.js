@@ -77,20 +77,23 @@ export async function launchDaemon(gitRoot, dataDir) {
     console.error(`[CLI] Test mode enabled - browser will not open`);
   }
   // Create log file for daemon output (for debugging)
-  const { openSync } = await import('fs');
+  const { createWriteStream } = await import('fs');
   const daemonLogPath = join(dataDir, 'daemon-startup.log');
-  const logFd = openSync(daemonLogPath, 'a');
+  const logStream = createWriteStream(daemonLogPath, { flags: 'a' });
   console.error(`[CLI] Daemon logs will be written to: ${daemonLogPath}`);
 
   const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
-    stdio: ['ignore', logFd, logFd] // Redirect stdout and stderr to log file
+    stdio: ['ignore', logStream, logStream] // Redirect stdout and stderr to log file
   });
   console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
   // Detach the daemon so it continues after CLI exits
   daemon.unref();
+
+  // Close log stream after daemon is detached (daemon has its own handle)
+  logStream.end();
 
   // Wait for daemon to start and write port file
   // Use 30s timeout for test environments where startup can be slower
