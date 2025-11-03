@@ -12,491 +12,341 @@ import { existsSync } from 'fs';
 import { readdir } from 'fs/promises';
 import { join } from 'path';
 
-// Test setup
-async function setupTest(testName = 'unknown') {
-  const testDir = await unit_test_setup(import.meta.url, testName);
-  sparkle.setBaseDirectory(testDir);
+describe('Aggregate Manager', () => {
+  let testDir;
 
-  // Inject the real aggregate manager
-  sparkle.setAggregateManager(aggregateManager);
+  beforeEach(async () => {
+    testDir = await unit_test_setup(import.meta.url, 'aggregate-manager-tests');
+    sparkle.setBaseDirectory(testDir);
 
-  // Initialize the aggregate store
-  await aggregateManager.initializeAggregateStore(testDir);
+    // Inject the real aggregate manager
+    sparkle.setAggregateManager(aggregateManager);
 
-  return testDir;
-}
+    // Initialize the aggregate store
+    await aggregateManager.initializeAggregateStore(testDir);
+  });
 
-// Test runner
-class TestRunner {
-  constructor() {
-    this.tests = [];
-    this.passed = 0;
-    this.failed = 0;
-  }
+  describe('Initialization', () => {
+    test('creates directory structure', () => {
+      const aggregateDir = join(testDir, '.aggregates');
+      const itemsDir = join(aggregateDir, 'items');
+      const metadataPath = join(aggregateDir, 'metadata.json');
 
-  test(name, fn) {
-    this.tests.push({ name, fn });
-  }
+      expect(existsSync(aggregateDir)).toBe(true);
+      expect(existsSync(itemsDir)).toBe(true);
+      expect(existsSync(metadataPath)).toBe(true);
+    });
+  });
 
-  async run() {
-    console.log(`\nRunning ${this.tests.length} aggregate manager tests...\n`);
+  describe('Aggregate Creation', () => {
+    test('creates aggregate file after item creation', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      const aggregatePath = join(testDir, '.aggregates', 'items', `${itemId}.json`);
 
-    for (const { name, fn } of this.tests) {
-      try {
-        const testDir = await setupTest();
-        await fn(testDir);
-        this.passed++;
-        console.log(`✓ ${name}`);
-      } catch (error) {
-        this.failed++;
-        console.error(`✗ ${name}`);
-        console.error(`  Error: ${error.message}`);
-        if (error.stack) {
-          console.error(`  ${error.stack.split('\n').slice(1, 3).join('\n  ')}`);
-        }
+      expect(existsSync(aggregatePath)).toBe(true);
+    });
+
+    test('contains all required fields', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      const aggregate = await aggregateManager.getAggregate(itemId);
+
+      const requiredFields = ['itemId', 'tagline', 'status', 'created', 'creator', '_meta'];
+      for (const field of requiredFields) {
+        expect(aggregate[field]).toBeTruthy();
       }
-    }
-
-    console.log(`\nResults: ${this.passed} passed, ${this.failed} failed\n`);
-    process.exit(this.failed > 0 ? 1 : 0);
-  }
-}
-
-const runner = new TestRunner();
-
-// ============================================================================
-// Tests: Initialization
-// ============================================================================
-
-runner.test('initializeAggregateStore creates directory structure', async (testDir) => {
-  const aggregateDir = join(testDir, '.aggregates');
-  const itemsDir = join(aggregateDir, 'items');
-  const metadataPath = join(aggregateDir, 'metadata.json');
-
-  if (!existsSync(aggregateDir)) {
-    throw new Error('.aggregates directory not created');
-  }
-
-  if (!existsSync(itemsDir)) {
-    throw new Error('.aggregates/items directory not created');
-  }
-
-  if (!existsSync(metadataPath)) {
-    throw new Error('metadata.json not created');
-  }
-});
-
-// ============================================================================
-// Tests: Aggregate Creation
-// ============================================================================
-
-runner.test('rebuildAggregate creates aggregate file after item creation', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  const aggregatePath = join(testDir, '.aggregates', 'items', `${itemId}.json`);
-
-  if (!existsSync(aggregatePath)) {
-    throw new Error('Aggregate file not created');
-  }
-});
-
-runner.test('aggregate contains all required fields', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  const aggregate = await aggregateManager.getAggregate(itemId);
-
-  const requiredFields = ['itemId', 'tagline', 'status', 'created', 'creator', '_meta'];
-  for (const field of requiredFields) {
-    if (!aggregate[field]) {
-      throw new Error(`Missing required field: ${field}`);
-    }
-  }
-});
-
-runner.test('aggregate metadata contains expected fields', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  const aggregate = await aggregateManager.getAggregate(itemId);
-
-  const metaFields = ['lastEventTimestamp', 'eventFileCount', 'builtAt'];
-  for (const field of metaFields) {
-    if (!aggregate._meta[field]) {
-      throw new Error(`Missing metadata field: ${field}`);
-    }
-  }
-});
-
-runner.test('aggregate has derived fields', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  const aggregate = await aggregateManager.getAggregate(itemId);
-
-  if (typeof aggregate.dependencyCount !== 'number') {
-    throw new Error('Missing or invalid dependencyCount');
-  }
-
-  if (typeof aggregate.entryCount !== 'number') {
-    throw new Error('Missing or invalid entryCount');
-  }
-});
-
-// ============================================================================
-// Tests: Aggregate Updates
-// ============================================================================
-
-runner.test('aggregate updates when tagline changes', async (testDir) => {
-  const itemId = await sparkle.createItem('Original tagline', 'incomplete');
-
-  await sparkle.alterTagline(itemId, 'Updated tagline');
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (aggregate.tagline !== 'Updated tagline') {
-    throw new Error(`Tagline not updated in aggregate: ${aggregate.tagline}`);
-  }
-});
-
-runner.test('aggregate updates when status changes', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  await sparkle.updateStatus(itemId, 'completed');
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (aggregate.status !== 'completed') {
-    throw new Error(`Status not updated in aggregate: ${aggregate.status}`);
-  }
-});
-
-runner.test('aggregate updates when entry added', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  await sparkle.addEntry(itemId, 'First entry');
-  await sparkle.addEntry(itemId, 'Second entry');
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (aggregate.entryCount !== 2) {
-    throw new Error(`Entry count incorrect: ${aggregate.entryCount}`);
-  }
-
-  if (aggregate.entries.length !== 2) {
-    throw new Error(`Entries array length incorrect: ${aggregate.entries.length}`);
-  }
-});
-
-runner.test('aggregate updates when dependency added', async (testDir) => {
-  const item1 = await sparkle.createItem('Item 1', 'incomplete');
-  const item2 = await sparkle.createItem('Item 2', 'incomplete');
-
-  await sparkle.addDependency(item1, item2);
-
-  const aggregate1 = await aggregateManager.getAggregate(item1);
-  if (aggregate1.dependencyCount !== 1) {
-    throw new Error(`Item 1 dependency count incorrect: ${aggregate1.dependencyCount}`);
-  }
-
-  if (!aggregate1.dependencies.includes(item2)) {
-    throw new Error('Item 2 not in item 1 dependencies');
-  }
-});
-
-runner.test('both aggregates update when dependency added', async (testDir) => {
-  const item1 = await sparkle.createItem('Item 1', 'incomplete');
-  const item2 = await sparkle.createItem('Item 2', 'incomplete');
-
-  const beforeTimestamp = Date.now();
-
-  await sparkle.addDependency(item1, item2);
-
-  const aggregate1 = await aggregateManager.getAggregate(item1);
-  const aggregate2 = await aggregateManager.getAggregate(item2);
-
-  const time1 = new Date(aggregate1._meta.builtAt).getTime();
-  const time2 = new Date(aggregate2._meta.builtAt).getTime();
-
-  if (time1 < beforeTimestamp) {
-    throw new Error('Item 1 aggregate not rebuilt');
-  }
-
-  if (time2 < beforeTimestamp) {
-    throw new Error('Item 2 aggregate not rebuilt');
-  }
-});
-
-runner.test('aggregate updates when monitor added', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  await sparkle.addMonitor(itemId);
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (!aggregate.monitors || aggregate.monitors.length !== 1) {
-    throw new Error('Monitor not added to aggregate');
-  }
-});
-
-runner.test('aggregate updates when item ignored', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  await sparkle.ignoreItem(itemId);
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (aggregate.ignored !== true) {
-    throw new Error('Ignored status not updated in aggregate');
-  }
-});
-
-runner.test('aggregate updates when item taken', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  await sparkle.takeItem(itemId);
-
-  const aggregate = await aggregateManager.getAggregate(itemId);
-  if (!aggregate.takenBy) {
-    throw new Error('TakenBy not updated in aggregate');
-  }
-});
-
-// ============================================================================
-// Tests: getAllAggregates
-// ============================================================================
-
-runner.test('getAllAggregates returns all items', async (testDir) => {
-  await sparkle.createItem('Item 1', 'incomplete');
-  await sparkle.createItem('Item 2', 'incomplete');
-  await sparkle.createItem('Item 3', 'incomplete');
-
-  const aggregates = await aggregateManager.getAllAggregates();
-
-  if (aggregates.length !== 3) {
-    throw new Error(`Expected 3 aggregates, got ${aggregates.length}`);
-  }
-});
-
-runner.test('getAllAggregates returns items in correct format', async (testDir) => {
-  await sparkle.createItem('Test item', 'incomplete');
-
-  const aggregates = await aggregateManager.getAllAggregates();
-  const aggregate = aggregates[0];
-
-  if (!aggregate.itemId || !aggregate.tagline || !aggregate.status) {
-    throw new Error('Aggregate missing required fields');
-  }
-});
-
-// ============================================================================
-// Tests: Validation
-// ============================================================================
-
-runner.test('validateAggregate passes for valid aggregate', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-
-  const validation = await aggregateManager.validateAggregate(itemId);
-
-  if (!validation.valid) {
-    throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
-  }
-});
-
-runner.test('validateAggregate detects missing aggregate', async (testDir) => {
-  const validation = await aggregateManager.validateAggregate('99999999');
-
-  if (validation.valid) {
-    throw new Error('Validation should fail for missing aggregate');
-  }
-
-  if (!validation.errors.includes('Aggregate file not found')) {
-    throw new Error('Expected "Aggregate file not found" error');
-  }
-});
-
-runner.test('validateAllAggregates passes for valid system', async (testDir) => {
-  await sparkle.createItem('Item 1', 'incomplete');
-  await sparkle.createItem('Item 2', 'incomplete');
-
-  const validation = await sparkle.validateAllAggregates();
-
-  if (!validation.valid) {
-    throw new Error(`Validation failed with ${validation.invalidItems.length} invalid items`);
-  }
-});
-
-// ============================================================================
-// Tests: Rebuild All
-// ============================================================================
-
-runner.test('rebuildAll rebuilds all aggregates', async (testDir) => {
-  await sparkle.createItem('Item 1', 'incomplete');
-  await sparkle.createItem('Item 2', 'incomplete');
-  await sparkle.createItem('Item 3', 'incomplete');
-
-  // Delete all aggregate files to simulate corruption
-  const itemsDir = join(testDir, '.aggregates', 'items');
-  const files = await readdir(itemsDir);
-  for (const file of files) {
-    const { unlink } = await import('fs/promises');
-    await unlink(join(itemsDir, file));
-  }
-
-  // Rebuild all
-  await sparkle.rebuildAllAggregates();
-
-  // Check all aggregates exist
-  const aggregates = await aggregateManager.getAllAggregates();
-  if (aggregates.length !== 3) {
-    throw new Error(`Expected 3 aggregates after rebuild, got ${aggregates.length}`);
-  }
-});
-
-runner.test('rebuildAll reports progress', async (testDir) => {
-  await sparkle.createItem('Item 1', 'incomplete');
-  await sparkle.createItem('Item 2', 'incomplete');
-  await sparkle.createItem('Item 3', 'incomplete');
-
-  let progressCalls = 0;
-  let lastCurrent = 0;
-  let lastTotal = 0;
-
-  await sparkle.rebuildAllAggregates((current, total) => {
-    progressCalls++;
-    lastCurrent = current;
-    lastTotal = total;
+    });
+
+    test('metadata contains expected fields', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      const aggregate = await aggregateManager.getAggregate(itemId);
+
+      const metaFields = ['lastEventTimestamp', 'eventFileCount', 'builtAt'];
+      for (const field of metaFields) {
+        expect(aggregate._meta[field]).toBeTruthy();
+      }
+    });
+
+    test('has derived fields', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      const aggregate = await aggregateManager.getAggregate(itemId);
+
+      expect(typeof aggregate.dependencyCount).toBe('number');
+      expect(typeof aggregate.entryCount).toBe('number');
+    });
   });
 
-  if (progressCalls === 0) {
-    throw new Error('Progress callback not called');
-  }
+  describe('Aggregate Updates', () => {
+    test('updates when tagline changes', async () => {
+      const itemId = await sparkle.createItem('Original tagline', 'incomplete');
 
-  if (lastCurrent !== 3) {
-    throw new Error(`Expected final current to be 3, got ${lastCurrent}`);
-  }
+      await sparkle.alterTagline(itemId, 'Updated tagline');
 
-  if (lastTotal !== 3) {
-    throw new Error(`Expected total to be 3, got ${lastTotal}`);
-  }
-});
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.tagline).toBe('Updated tagline');
+    });
 
-// ============================================================================
-// Tests: SSE Notification Callback
-// ============================================================================
+    test('updates when status changes', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
 
-runner.test('onAggregateChanged callback is called when aggregate rebuilt', async (testDir) => {
-  let callbackInvoked = false;
-  let callbackItemId = null;
+      await sparkle.updateStatus(itemId, 'completed');
 
-  sparkle.onAggregateChanged((itemId) => {
-    callbackInvoked = true;
-    callbackItemId = itemId;
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.status).toBe('completed');
+    });
+
+    test('updates when entry added', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      await sparkle.addEntry(itemId, 'First entry');
+      await sparkle.addEntry(itemId, 'Second entry');
+
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.entryCount).toBe(2);
+      expect(aggregate.entries.length).toBe(2);
+    });
+
+    test('updates when dependency added', async () => {
+      const item1 = await sparkle.createItem('Item 1', 'incomplete');
+      const item2 = await sparkle.createItem('Item 2', 'incomplete');
+
+      await sparkle.addDependency(item1, item2);
+
+      const aggregate1 = await aggregateManager.getAggregate(item1);
+      expect(aggregate1.dependencyCount).toBe(1);
+      expect(aggregate1.dependencies).toContain(item2);
+    });
+
+    test('both aggregates update when dependency added', async () => {
+      const item1 = await sparkle.createItem('Item 1', 'incomplete');
+      const item2 = await sparkle.createItem('Item 2', 'incomplete');
+
+      const beforeTimestamp = Date.now();
+
+      await sparkle.addDependency(item1, item2);
+
+      const aggregate1 = await aggregateManager.getAggregate(item1);
+      const aggregate2 = await aggregateManager.getAggregate(item2);
+
+      const time1 = new Date(aggregate1._meta.builtAt).getTime();
+      const time2 = new Date(aggregate2._meta.builtAt).getTime();
+
+      expect(time1).toBeGreaterThanOrEqual(beforeTimestamp);
+      expect(time2).toBeGreaterThanOrEqual(beforeTimestamp);
+    });
+
+    test('updates when monitor added', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      await sparkle.addMonitor(itemId);
+
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.monitors).toBeTruthy();
+      expect(aggregate.monitors.length).toBe(1);
+    });
+
+    test('updates when item ignored', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      await sparkle.ignoreItem(itemId);
+
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.ignored).toBe(true);
+    });
+
+    test('updates when item taken', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      await sparkle.takeItem(itemId);
+
+      const aggregate = await aggregateManager.getAggregate(itemId);
+      expect(aggregate.takenBy).toBeTruthy();
+    });
   });
 
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
+  describe('getAllAggregates', () => {
+    test('returns all items', async () => {
+      await sparkle.createItem('Item 1', 'incomplete');
+      await sparkle.createItem('Item 2', 'incomplete');
+      await sparkle.createItem('Item 3', 'incomplete');
 
-  if (!callbackInvoked) {
-    throw new Error('Callback not invoked');
-  }
+      const aggregates = await aggregateManager.getAllAggregates();
 
-  if (callbackItemId !== itemId) {
-    throw new Error(`Callback itemId mismatch: expected ${itemId}, got ${callbackItemId}`);
-  }
+      expect(aggregates.length).toBe(3);
+    });
+
+    test('returns items in correct format', async () => {
+      await sparkle.createItem('Test item', 'incomplete');
+
+      const aggregates = await aggregateManager.getAllAggregates();
+      const aggregate = aggregates[0];
+
+      expect(aggregate.itemId).toBeTruthy();
+      expect(aggregate.tagline).toBeTruthy();
+      expect(aggregate.status).toBeTruthy();
+    });
+  });
+
+  describe('Validation', () => {
+    test('passes for valid aggregate', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      const validation = await aggregateManager.validateAggregate(itemId);
+
+      expect(validation.valid).toBe(true);
+    });
+
+    test('detects missing aggregate', async () => {
+      const validation = await aggregateManager.validateAggregate('99999999');
+
+      expect(validation.valid).toBe(false);
+      expect(validation.errors).toContain('Aggregate file not found');
+    });
+
+    test('validateAllAggregates passes for valid system', async () => {
+      await sparkle.createItem('Item 1', 'incomplete');
+      await sparkle.createItem('Item 2', 'incomplete');
+
+      const validation = await sparkle.validateAllAggregates();
+
+      expect(validation.valid).toBe(true);
+    });
+  });
+
+  describe('Rebuild All', () => {
+    test('rebuilds all aggregates', async () => {
+      await sparkle.createItem('Item 1', 'incomplete');
+      await sparkle.createItem('Item 2', 'incomplete');
+      await sparkle.createItem('Item 3', 'incomplete');
+
+      // Delete all aggregate files to simulate corruption
+      const itemsDir = join(testDir, '.aggregates', 'items');
+      const files = await readdir(itemsDir);
+      for (const file of files) {
+        const { unlink } = await import('fs/promises');
+        await unlink(join(itemsDir, file));
+      }
+
+      // Rebuild all
+      await sparkle.rebuildAllAggregates();
+
+      // Check all aggregates exist
+      const aggregates = await aggregateManager.getAllAggregates();
+      expect(aggregates.length).toBe(3);
+    });
+
+    test('reports progress', async () => {
+      await sparkle.createItem('Item 1', 'incomplete');
+      await sparkle.createItem('Item 2', 'incomplete');
+      await sparkle.createItem('Item 3', 'incomplete');
+
+      let progressCalls = 0;
+      let lastCurrent = 0;
+      let lastTotal = 0;
+
+      await sparkle.rebuildAllAggregates((current, total) => {
+        progressCalls++;
+        lastCurrent = current;
+        lastTotal = total;
+      });
+
+      expect(progressCalls).toBeGreaterThan(0);
+      expect(lastCurrent).toBe(3);
+      expect(lastTotal).toBe(3);
+    });
+  });
+
+  describe('SSE Notification Callback', () => {
+    test('callback is called when aggregate rebuilt', async () => {
+      let callbackInvoked = false;
+      let callbackItemId = null;
+
+      sparkle.onAggregateChanged((itemId) => {
+        callbackInvoked = true;
+        callbackItemId = itemId;
+      });
+
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+
+      expect(callbackInvoked).toBe(true);
+      expect(callbackItemId).toBe(itemId);
+    });
+  });
+
+  describe('Integration with Sparkle API', () => {
+    test('getAllItems returns data from aggregates', async () => {
+      await sparkle.createItem('Item 1', 'incomplete');
+      const item2 = await sparkle.createItem('Item 2', 'incomplete');
+      await sparkle.updateStatus(item2, 'completed');
+
+      const items = await sparkle.getAllItems();
+
+      expect(items.length).toBe(2);
+
+      // Check data format
+      for (const item of items) {
+        expect(item.itemId).toBeTruthy();
+        expect(item.tagline).toBeTruthy();
+        expect(item.status).toBeTruthy();
+        expect(item.created).toBeTruthy();
+      }
+    });
+
+    test('getItemDetails returns data from aggregate', async () => {
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      await sparkle.addEntry(itemId, 'Test entry');
+
+      const details = await sparkle.getItemDetails(itemId);
+
+      expect(details.tagline).toBe('Test item');
+      expect(details.entries.length).toBe(1);
+    });
+
+    test('pendingWork uses aggregates', async () => {
+      const item1 = await sparkle.createItem('Item 1', 'incomplete');
+      const item2 = await sparkle.createItem('Item 2', 'incomplete');
+      const item3 = await sparkle.createItem('Item 3', 'incomplete');
+      await sparkle.updateStatus(item3, 'completed');
+
+      await sparkle.addDependency(item2, item1);
+
+      const pending = [];
+      for await (const itemId of sparkle.pendingWork()) {
+        pending.push(itemId);
+      }
+
+      // Item 1 should be pending (no deps, not completed)
+      // Item 2 should NOT be pending (depends on item1 which is not completed)
+      // Item 3 should NOT be pending (already completed)
+
+      expect(pending).toContain(item1);
+      expect(pending).not.toContain(item2);
+      expect(pending).not.toContain(item3);
+    });
+  });
+
+  describe('Performance', () => {
+    test('aggregates provide faster access than event sourcing', async () => {
+      // Create item with multiple events
+      const itemId = await sparkle.createItem('Test item', 'incomplete');
+      await sparkle.addEntry(itemId, 'Entry 1');
+      await sparkle.addEntry(itemId, 'Entry 2');
+      await sparkle.addEntry(itemId, 'Entry 3');
+      await sparkle.alterTagline(itemId, 'Updated tagline');
+      await sparkle.updateStatus(itemId, 'completed');
+
+      // Time aggregate access
+      const startAggregate = Date.now();
+      await sparkle.getItemDetails(itemId);
+      const aggregateTime = Date.now() - startAggregate;
+
+      console.log(`  Aggregate access time: ${aggregateTime}ms`);
+
+      // Verify the aggregate has all the data
+      const details = await sparkle.getItemDetails(itemId);
+
+      expect(details.entries.length).toBe(3);
+      expect(details.tagline).toBe('Updated tagline');
+      expect(details.status).toBe('completed');
+    });
+  });
 });
-
-// ============================================================================
-// Tests: Integration with Sparkle API
-// ============================================================================
-
-runner.test('getAllItems returns data from aggregates', async (testDir) => {
-  await sparkle.createItem('Item 1', 'incomplete');
-  const item2 = await sparkle.createItem('Item 2', 'incomplete');
-  await sparkle.updateStatus(item2, 'completed');
-
-  const items = await sparkle.getAllItems();
-
-  if (items.length !== 2) {
-    throw new Error(`Expected 2 items, got ${items.length}`);
-  }
-
-  // Check data format
-  for (const item of items) {
-    if (!item.itemId || !item.tagline || !item.status || !item.created) {
-      throw new Error('Item missing required fields from aggregate');
-    }
-  }
-});
-
-runner.test('getItemDetails returns data from aggregate', async (testDir) => {
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  await sparkle.addEntry(itemId, 'Test entry');
-
-  const details = await sparkle.getItemDetails(itemId);
-
-  if (details.tagline !== 'Test item') {
-    throw new Error('Tagline mismatch');
-  }
-
-  if (details.entries.length !== 1) {
-    throw new Error('Entries not included from aggregate');
-  }
-});
-
-runner.test('pendingWork uses aggregates', async (testDir) => {
-  const item1 = await sparkle.createItem('Item 1', 'incomplete');
-  const item2 = await sparkle.createItem('Item 2', 'incomplete');
-  const item3 = await sparkle.createItem('Item 3', 'incomplete');
-  await sparkle.updateStatus(item3, 'completed');
-
-  await sparkle.addDependency(item2, item1);
-
-  const pending = [];
-  for await (const itemId of sparkle.pendingWork()) {
-    pending.push(itemId);
-  }
-
-  // Item 1 should be pending (no deps, not completed)
-  // Item 2 should NOT be pending (depends on item1 which is not completed)
-  // Item 3 should NOT be pending (already completed)
-
-  if (!pending.includes(item1)) {
-    throw new Error('Item 1 should be pending');
-  }
-
-  if (pending.includes(item2)) {
-    throw new Error('Item 2 should not be pending (has unmet dependency)');
-  }
-
-  if (pending.includes(item3)) {
-    throw new Error('Item 3 should not be pending (already completed)');
-  }
-});
-
-// ============================================================================
-// Tests: Performance (Aggregate vs Event Sourcing)
-// ============================================================================
-
-runner.test('aggregates provide faster access than event sourcing', async (testDir) => {
-  // Create item with multiple events
-  const itemId = await sparkle.createItem('Test item', 'incomplete');
-  await sparkle.addEntry(itemId, 'Entry 1');
-  await sparkle.addEntry(itemId, 'Entry 2');
-  await sparkle.addEntry(itemId, 'Entry 3');
-  await sparkle.alterTagline(itemId, 'Updated tagline');
-  await sparkle.updateStatus(itemId, 'completed');
-
-  // Time aggregate access
-  const startAggregate = Date.now();
-  await sparkle.getItemDetails(itemId);
-  const aggregateTime = Date.now() - startAggregate;
-
-  console.log(`  Aggregate access time: ${aggregateTime}ms`);
-
-  // We can't directly test event sourcing time since we removed that path,
-  // but we can verify the aggregate has all the data
-  const details = await sparkle.getItemDetails(itemId);
-
-  if (details.entries.length !== 3) {
-    throw new Error('Aggregate missing entries');
-  }
-
-  if (details.tagline !== 'Updated tagline') {
-    throw new Error('Aggregate has wrong tagline');
-  }
-
-  if (details.status !== 'completed') {
-    throw new Error('Aggregate has wrong status');
-  }
-});
-
-// Run all tests
-runner.run();
