@@ -76,10 +76,16 @@ export async function launchDaemon(gitRoot, dataDir) {
     args.push('--test-mode');
     console.error(`[CLI] Test mode enabled - browser will not open`);
   }
+  // Create log file for daemon output (for debugging)
+  const { openSync } = await import('fs');
+  const daemonLogPath = join(dataDir, 'daemon-startup.log');
+  const logFd = openSync(daemonLogPath, 'a');
+  console.error(`[CLI] Daemon logs will be written to: ${daemonLogPath}`);
+
   const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
-    stdio: 'ignore' // Daemon manages its own logging
+    stdio: ['ignore', logFd, logFd] // Redirect stdout and stderr to log file
   });
   console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
