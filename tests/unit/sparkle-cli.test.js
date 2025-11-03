@@ -60,43 +60,90 @@ describe('Sparkle CLI', () => {
    * Creates items using library directly (not daemon) to avoid daemon startup delays
    */
   async function setupTestData(testName = 'cli-test') {
+    const setupStart = Date.now();
+    console.log(`[SETUP] Starting setupTestData for ${testName}`);
+
     const testId = createTestId();
+    let stepStart = Date.now();
     const env = await createTestEnvironment(baseDir, testName, 1, testId);
+    console.log(`[SETUP] createTestEnvironment: ${Date.now() - stepStart}ms`);
+
     const clonePath = env.clones[0];
 
     // Install and initialize Sparkle
+    stepStart = Date.now();
     await installSparkle(clonePath, tarballPath);
+    console.log(`[SETUP] installSparkle: ${Date.now() - stepStart}ms`);
+
+    stepStart = Date.now();
     await initializeSparkle(clonePath);
+    console.log(`[SETUP] initializeSparkle: ${Date.now() - stepStart}ms`);
 
     // Get data directory path
     const dataDir = join(clonePath, '.sparkle-worktree', 'sparkle-data');
 
     // Import Sparkle class from the installed package
+    stepStart = Date.now();
     const sparklePath = join(clonePath, 'node_modules/sparkle/src/sparkle-class.js');
     const { Sparkle } = await import(pathToFileURL(sparklePath).href);
+    console.log(`[SETUP] import Sparkle: ${Date.now() - stepStart}ms`);
 
     // Create Sparkle instance and start it
+    stepStart = Date.now();
     const sparkle = new Sparkle(dataDir);
     await sparkle.start();
+    console.log(`[SETUP] sparkle.start(): ${Date.now() - stepStart}ms`);
 
     // Create test items using library directly
+    stepStart = Date.now();
     const item1 = await sparkle.createItem('Test item 1', 'incomplete', 'First test item');
     const item2 = await sparkle.createItem('Test item 2', 'incomplete', 'Second test item');
     const item3 = await sparkle.createItem('Test item 3', 'incomplete', 'Third test item');
+    console.log(`[SETUP] createItem x3: ${Date.now() - stepStart}ms`);
 
     // Mark item2 as completed
+    stepStart = Date.now();
     await sparkle.updateStatus(item2, 'completed', 'Item completed');
+    console.log(`[SETUP] updateStatus: ${Date.now() - stepStart}ms`);
 
     // Add a dependency (item3 depends on item2)
+    stepStart = Date.now();
     await sparkle.addDependency(item3, item2);
+    console.log(`[SETUP] addDependency: ${Date.now() - stepStart}ms`);
 
     // Add an entry to item1
+    stepStart = Date.now();
     await sparkle.addEntry(item1, 'Additional entry for item1');
+    console.log(`[SETUP] addEntry: ${Date.now() - stepStart}ms`);
 
-    // Commit the changes
-    await new Promise(resolve => setTimeout(resolve, 6000));
+    // Wait for pending git operations to complete by polling
+    stepStart = Date.now();
+    console.log(`[SETUP] Waiting for git operations to complete...`);
+    const maxWait = 6000;
+    const pollInterval = 100;
+    let waited = 0;
+    while (waited < maxWait) {
+      // Check if there are pending operations
+      const hasPending = sparkle.gitOps.commitScheduler &&
+                         sparkle.gitOps.commitScheduler.hasPendingCommit &&
+                         sparkle.gitOps.commitScheduler.hasPendingCommit();
+      if (!hasPending) {
+        console.log(`[SETUP] Git operations ready after ${waited}ms`);
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      waited += pollInterval;
+    }
+    if (waited >= maxWait) {
+      console.log(`[SETUP] WARNING: Reached max wait time (${maxWait}ms) for git operations`);
+    }
+    console.log(`[SETUP] Git wait polling: ${Date.now() - stepStart}ms`);
+
+    stepStart = Date.now();
     await sparkle.gitOps.commitAndPush();
+    console.log(`[SETUP] commitAndPush: ${Date.now() - stepStart}ms`);
 
+    console.log(`[SETUP] Total setupTestData: ${Date.now() - setupStart}ms`);
     return { env, dataDir, item1, item2, item3 };
   }
 
