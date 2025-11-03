@@ -17,6 +17,18 @@ import { LogServer } from './log-server.js';
 
 const execAsync = promisify(exec);
 
+/**
+ * Get path to Sparkle tarball
+ * @returns {Promise<string>} Path to tarball
+ */
+export async function getTarballPath() {
+  const packageJsonPath = join(process.cwd(), 'package.json');
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  const version = packageJson.version;
+  const tarballName = `sparkle-${version}.tgz`;
+  return join(process.cwd(), tarballName);
+}
+
 // Global log server for all tests
 let logServer = null;
 
