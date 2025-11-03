@@ -14,7 +14,6 @@ import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
-import http from 'http';
 import {
   createTestEnvironment,
   installSparkle,
@@ -24,6 +23,7 @@ import {
   createTestId,
   startLogServer
 } from '../helpers/test-helpers.js';
+import { makeApiRequest, triggerFetchAndWait } from '../../src/daemonClient.js';
 
 const execAsync = promisify(execCallback);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -34,53 +34,6 @@ async function getTarballPath() {
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
   const version = packageJson.version;
   return join(process.cwd(), `sparkle-${version}.tgz`);
-}
-
-// Helper: Make HTTP API request to daemon
-function makeApiRequest(port, path, method = 'GET', body = null) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'localhost',
-      port: port,
-      path: path,
-      method: method,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
-
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            resolve(JSON.parse(data));
-          } catch (e) {
-            resolve(data);
-          }
-        } else {
-          reject(new Error(`HTTP ${res.statusCode}: ${data}`));
-        }
-      });
-    });
-
-    req.on('error', reject);
-
-    if (body) {
-      req.write(JSON.stringify(body));
-    }
-    req.end();
-  });
-}
-
-// Helper: Wait for daemon periodic fetch to pull changes
-async function waitForDaemonSync(timeoutMs = 30000) {
-  // Daemons fetch every 10 seconds by default
-  // Wait at least 12 seconds to ensure a fetch cycle completes
-  const waitTime = Math.max(12000, timeoutMs);
-  console.log(`  ⏳ Waiting ${waitTime/1000}s for daemon periodic fetch...`);
-  await sleep(waitTime);
 }
 
 describe('Daemon Cross-Clone Synchronization', () => {
@@ -145,9 +98,10 @@ describe('Daemon Cross-Clone Synchronization', () => {
         const port2 = await startDaemon(clone2Path, `${testId}-clone2`);
         console.log(`✓ Clone2 daemon started on port ${port2}`);
 
-        // === WAIT FOR CLONE 2 TO SYNC ===
-        // Clone2 daemon will do periodic fetch and see clone1's item
-        await waitForDaemonSync(15000);
+        // === TRIGGER CLONE 2 TO FETCH ===
+        // Clone2 daemon will fetch and see clone1's item
+        console.log('🔄 Triggering fetch on clone2...');
+        await triggerFetchAndWait(port2);
 
         // === VERIFY ITEM VISIBLE IN CLONE 2 ===
         console.log('\n🔍 Checking if clone2 can see item...');
@@ -194,7 +148,7 @@ describe('Daemon Cross-Clone Synchronization', () => {
         const port2 = await startDaemon(clone2Path, `${testId}-clone2`);
         console.log(`✓ Clone2 daemon started on port ${port2}`);
 
-        await waitForDaemonSync(15000);
+        await triggerFetchAndWait(port2);
 
         // === CREATE ITEM IN CLONE 1 ===
         console.log('\n✏️  Creating item in clone1...');
@@ -209,7 +163,7 @@ describe('Daemon Cross-Clone Synchronization', () => {
 
         // === WAIT FOR CLONE 2 TO SYNC ===
         console.log('\n⏳ Waiting for clone2 to see the item...');
-        await waitForDaemonSync(15000);
+        await triggerFetchAndWait(port2);
 
         // === ADD ENTRIES FROM BOTH CLONES CONCURRENTLY ===
         console.log('\n✏️  Adding entries from both clones...');
@@ -230,7 +184,11 @@ describe('Daemon Cross-Clone Synchronization', () => {
 
         // === WAIT FOR SYNC (both directions) ===
         console.log('\n⏳ Waiting for bidirectional sync...');
-        await waitForDaemonSync(20000);
+        // Trigger fetch on both clones to sync bidirectionally
+        await Promise.all([
+          triggerFetchAndWait(port1),
+          triggerFetchAndWait(port2)
+        ]);
 
         // Force aggregate rebuild to pick up merged changes
         await makeApiRequest(port1, '/api/internal/aggregateUpdated', 'POST', {
@@ -288,7 +246,7 @@ describe('Daemon Cross-Clone Synchronization', () => {
         const port2 = await startDaemon(clone2Path, `${testId}-clone2`);
         console.log(`✓ Clone2 daemon started on port ${port2}`);
 
-        await waitForDaemonSync(15000);
+        await triggerFetchAndWait(port2);
 
         // === CREATE AND MODIFY ITEM IN CLONE 1 ===
         console.log('\n✏️  Creating item in clone1...');
@@ -312,7 +270,7 @@ describe('Daemon Cross-Clone Synchronization', () => {
 
         // === WAIT FOR CLONE 2 TO SYNC ===
         console.log('\n⏳ Waiting for clone2 daemon to pull changes...');
-        await waitForDaemonSync(15000);
+        await triggerFetchAndWait(port2);
 
         // === VERIFY CLONE 2 SEES UPDATED DATA ===
         console.log('\n🔍 Checking if clone2 sees updated tagline...');
