@@ -53,19 +53,27 @@ export async function getRunningDaemonPort(dataDir) {
  * @returns {Promise<number>} Port number the daemon is running on
  */
 export async function launchDaemon(gitRoot, dataDir) {
+  const launchStart = Date.now();
+  console.error(`[CLI] Launching daemon from: ${gitRoot}`);
+
   const agentPath = join(__dirname, '..', 'bin', 'sparkle_agent.js');
 
   if (!existsSync(agentPath)) {
     throw new Error(`Daemon agent not found at: ${agentPath}`);
   }
 
+  console.error(`[CLI] Agent path: ${agentPath}`);
+  console.error(`[CLI] Spawning daemon process...`);
+
   // Start daemon in background with --keep-alive=api flag (5-min timeout)
   // spawnProcess from execUtils automatically hides windows on Windows
+  const spawnStart = Date.now();
   const daemon = spawnProcess(process.execPath, [agentPath, '--keep-alive=api'], {
     cwd: gitRoot,
     detached: true,
     stdio: 'ignore' // Daemon manages its own logging
   });
+  console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
   // Detach the daemon so it continues after CLI exits
   daemon.unref();
@@ -73,6 +81,9 @@ export async function launchDaemon(gitRoot, dataDir) {
   // Wait for daemon to start and write port file
   // Use 30s timeout for test environments where startup can be slower
   const port = await waitForDaemonStart(dataDir, 30000);
+
+  const totalTime = Date.now() - launchStart;
+  console.error(`[CLI] Total daemon launch time: ${totalTime}ms`);
   return port;
 }
 
@@ -85,9 +96,29 @@ export async function launchDaemon(gitRoot, dataDir) {
 async function waitForDaemonStart(dataDir, timeout = 10000) {
   const portFile = join(dataDir, 'last_port.data');
   const startTime = Date.now();
+  let lastLogTime = startTime;
+  let portFileFoundTime = null;
+  let checkCount = 0;
+
+  console.error(`[CLI] Waiting for daemon to start (timeout: ${timeout}ms)...`);
+  console.error(`[CLI] Port file: ${portFile}`);
 
   while (Date.now() - startTime < timeout) {
+    checkCount++;
+    const elapsed = Date.now() - startTime;
+
+    // Log every 5 seconds
+    if (Date.now() - lastLogTime > 5000) {
+      console.error(`[CLI] Still waiting... ${elapsed}ms elapsed, checked ${checkCount} times`);
+      lastLogTime = Date.now();
+    }
+
     if (existsSync(portFile)) {
+      if (!portFileFoundTime) {
+        portFileFoundTime = Date.now();
+        console.error(`[CLI] Port file appeared after ${portFileFoundTime - startTime}ms`);
+      }
+
       try {
         const portData = await readFile(portFile, 'utf8');
         const port = parseInt(portData.trim(), 10);
@@ -95,9 +126,14 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
         // Verify daemon is responding
         try {
           await makeApiRequest(port, '/api/ping');
+          const totalTime = Date.now() - startTime;
+          console.error(`[CLI] Daemon ready after ${totalTime}ms (${checkCount} checks)`);
           return port;
         } catch (error) {
           // Wait a bit more for daemon to be ready
+          if (Date.now() - portFileFoundTime > 5000) {
+            console.error(`[CLI] Port file exists but daemon not responding after ${Date.now() - portFileFoundTime}ms`);
+          }
         }
       } catch (error) {
         // File might be being written, try again
@@ -108,6 +144,13 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
+  const totalTime = Date.now() - startTime;
+  console.error(`[CLI] TIMEOUT after ${totalTime}ms (${checkCount} checks)`);
+  if (portFileFoundTime) {
+    console.error(`[CLI] Port file appeared but daemon never responded to ping`);
+  } else {
+    console.error(`[CLI] Port file never appeared`);
+  }
   throw new Error('Daemon failed to start within timeout');
 }
 
