@@ -311,7 +311,7 @@ async function main() {
     console.log('Opening browser for configuration...');
 
     // Open browser to configuration page
-    await openBrowser(`http://localhost:${port}/configure.html`);
+    await openBrowser(`http://localhost:${port}/configuration.html`);
   });
 
   // Graceful shutdown on SIGINT
