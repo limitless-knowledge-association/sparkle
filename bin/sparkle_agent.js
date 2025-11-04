@@ -1819,11 +1819,9 @@ async function main() {
         console.log('Background initial fetch failed (normal if offline):', error.message);
         if (logger) logger.warn('Background initial fetch failed', { error: error.message });
       });
+    }
 
-      // Daemon is ready - no browser opening
-      console.log('Daemon is ready.');
-
-    // Start the no-client timeout - will shut down if no clients connect within 60 seconds
+    // Start the no-client timeout - will shut down if no clients connect within timeout
     if (logger) logger.info('Starting no-client timeout');
     startNoClientTimeout();
     if (logger) logger.info('Startup complete');
