@@ -105,10 +105,13 @@
 
     .node-status {
       margin-left: 8px;
+      margin-right: 8px;
       font-size: 12px;
-      padding: 2px 6px;
-      border-radius: 3px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 500;
       font-style: normal;
+      display: inline-block;
     }
 
     .node-status.completed {
@@ -372,7 +375,7 @@
           html += `
             <div class="tree-node anchor-node" style="padding-left: 0px;">
               <div class="node-content" onclick="handleItemClick('${anchorItemId}')">
-                <span class="node-itemid">★ ${anchorItemId}</span><span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>${statusBadge}
+                <span class="node-itemid">★ ${anchorItemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>
               </div>
             </div>
           `;
@@ -409,7 +412,7 @@
       return `
         <div class="tree-node" style="padding-left: ${indentPx}px;">
           <div class="node-content" onclick="handleItemClick('${itemId}')">
-            <span class="node-relation">${relationText}</span><span class="node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>${statusBadge}
+            <span class="node-relation">${relationText}</span><span class="node-itemid">${itemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>
           </div>
         </div>
       `;
