@@ -209,7 +209,6 @@ This script:
 - User-facing bin commands:
   - `sparkle` (unified CLI: browser, cat, inspect)
   - `sparkle-daemon`
-  - `sparkle-client`
   - `sparkle-halt`
   - `recover-sparkle`
 - `postinstall` script (for first-time setup)

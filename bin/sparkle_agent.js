@@ -43,15 +43,22 @@ const __dirname = dirname(__filename);
 // Store version in globalThis at startup - only read once
 globalThis.SPARKLE_DAEMON_VERSION = SPARKLE_VERSION;
 
-// Check if running in postinstall mode
-const isPostInstall = process.argv.includes('--postinstall');
-
 // Check if running in test mode
 const isTestMode = process.argv.includes('--test-mode');
 const testId = process.argv.find(arg => arg.startsWith('--test-id='))?.split('=')[1] || null;
 
-// Check if running in keep-alive mode (disable no-client timeout)
-const isKeepAlive = process.argv.includes('--keep-alive');
+// Parse keep-alive timeout:
+// - No flag: 60s timeout (default)
+// - --keep-alive: infinite (no timeout)
+// - --keep-alive=api: 300s timeout (5 min, for CLI usage)
+const keepAliveArg = process.argv.find(arg => arg.startsWith('--keep-alive'));
+let noClientTimeoutDuration = 60000; // 60 seconds default
+
+if (keepAliveArg === '--keep-alive') {
+  noClientTimeoutDuration = null; // infinite
+} else if (keepAliveArg === '--keep-alive=api') {
+  noClientTimeoutDuration = 300000; // 5 minutes
+}
 
 // Import HTTP logging (will be initialized in main() if environment vars present)
 import { initHttpLogger, createLogger } from '../src/httpLogger.js';
@@ -155,34 +162,39 @@ async function startLogging() {
 }
 
 /**
- * Start the no-client timeout - agent will exit after 60 seconds with no clients
- * (unless --keep-alive flag is set)
+ * Start the no-client timeout - agent will exit after timeout with no clients
+ * Timeout duration depends on --keep-alive flag:
+ * - No flag: 60s (browser mode)
+ * - --keep-alive=api: 300s (5 min, for CLI)
+ * - --keep-alive: infinite (no timeout)
  */
 function startNoClientTimeout() {
-  // Skip timeout if in keep-alive mode
-  if (isKeepAlive) {
+  // Skip timeout if in infinite keep-alive mode
+  if (noClientTimeoutDuration === null) {
     console.log('⏰ No-client timeout NOT started (keep-alive mode)');
     return;
   }
 
+  const timeoutSeconds = noClientTimeoutDuration / 1000;
+
   // Clear any existing timeout
   if (noClientTimeoutId) {
-    console.log(`⏰ Restarting no-client timeout (old: ${noClientTimeoutId})`);
+    console.log(`⏰ Restarting no-client timeout (${timeoutSeconds}s, old: ${noClientTimeoutId})`);
     clearTimeout(noClientTimeoutId);
   } else {
-    console.log('⏰ Starting no-client timeout (60 seconds)');
+    console.log(`⏰ Starting no-client timeout (${timeoutSeconds} seconds)`);
   }
 
   noClientTimeoutId = setTimeout(() => {
-    console.log('🔴 DAEMON EXIT REASON: No-client timeout (60 seconds elapsed)');
+    console.log(`🔴 DAEMON EXIT REASON: No-client timeout (${timeoutSeconds} seconds elapsed)`);
     console.log(`   - SSE clients: ${sseClients.length}`);
     console.log(`   - Timeout ID was: ${noClientTimeoutId}`);
-    console.log('No clients connected for 60 seconds. Shutting down gracefully...');
+    console.log(`No clients connected for ${timeoutSeconds} seconds. Shutting down gracefully...`);
 
     // Set shutdown flag - this prevents any further SSE broadcasts
     shuttingDown = true;
 
-    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: '60s', sseClients: sseClients.length });
+    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: `${timeoutSeconds}s`, sseClients: sseClients.length });
 
     // Clean up intervals
     if (fetchIntervalId) {
@@ -212,7 +224,7 @@ function startNoClientTimeout() {
     } else {
       process.exit(0);
     }
-  }, 60000); // 60 seconds
+  }, noClientTimeoutDuration);
 }
 
 /**
@@ -419,49 +431,6 @@ async function loadConfig() {
   }
 }
 
-/**
- * Check if Sparkle is installed as a regular dependency (should be devDependency)
- */
-async function checkDependencyType() {
-  try {
-    const packageJsonPath = join(gitRoot, 'package.json');
-    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-
-    // Check if sparkle is in dependencies (not recommended)
-    const inDependencies = packageJson.dependencies && packageJson.dependencies.sparkle;
-    const inDevDependencies = packageJson.devDependencies && packageJson.devDependencies.sparkle;
-
-    // Get the package specifier (e.g., "file:sparkle-1.0.180.tgz")
-    const packageSpec = inDependencies || inDevDependencies || null;
-
-    return {
-      isRegularDependency: !!inDependencies,
-      isDevDependency: !!inDevDependencies,
-      packageSpec: packageSpec
-    };
-  } catch (error) {
-    return { isRegularDependency: false, isDevDependency: false, packageSpec: null };
-  }
-}
-
-/**
- * Update package.json with Sparkle configuration
- */
-async function updatePackageJson(sparkleConfig) {
-  const packageJsonPath = join(gitRoot, 'package.json');
-  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-
-  // Add name field if it doesn't exist (prevents npm from inferring from directory name)
-  if (!packageJson.name) {
-    packageJson.name = await getRepositoryName();
-  }
-
-  // Add sparkle_config
-  packageJson.sparkle_config = sparkleConfig;
-
-  // Write back with nice formatting
-  await writeFile(packageJsonPath, JSON.stringify(packageJson, null, 2) + '\n', 'utf8');
-}
 
 /**
  * Validate git configuration before starting daemon
@@ -977,13 +946,6 @@ async function handleRequest(req, res) {
       return;
     }
 
-    // API endpoint to check dependency type
-    if (path === '/api/checkDependency') {
-      const depType = await checkDependencyType();
-      sendJSON(res, 200, depType);
-      return;
-    }
-
     // Server-Sent Events endpoint for connection monitoring
     if (path === '/api/events') {
       res.writeHead(200, {
@@ -1120,126 +1082,6 @@ async function handleRequest(req, res) {
       });
 
       sendJSON(res, 200, { success: true });
-      return;
-    }
-
-    if (path === '/api/configure' && req.method === 'POST') {
-      const body = await parseBody(req);
-      const { git_branch, directory, worktree_path } = body;
-
-      if (!git_branch || !directory) {
-        sendJSON(res, 400, { error: 'Missing required fields' });
-        return;
-      }
-
-      // Set default worktree_path if not provided (backward compatibility)
-      const finalWorktreePath = worktree_path || '.sparkle-worktree';
-
-      // Validate directory is relative (cross-platform check)
-      if (isAbsolute(directory) || directory.includes('..')) {
-        sendJSON(res, 400, { error: 'Directory must be a relative path' });
-        return;
-      }
-
-      // Validate worktree_path is relative (cross-platform check)
-      if (isAbsolute(finalWorktreePath) || finalWorktreePath.includes('..')) {
-        sendJSON(res, 400, { error: 'Worktree path must be a relative path' });
-        return;
-      }
-
-      // Check if origin remote exists and is accessible
-      const originCheck = await checkOriginRemote(gitRoot);
-      if (!originCheck.exists || !originCheck.isAccessible) {
-        sendJSON(res, 400, { error: originCheck.error });
-        return;
-      }
-
-      // Check if branch already exists
-      const exists = await branchExists(gitRoot, git_branch);
-      if (exists.local || exists.remote) {
-        sendJSON(res, 400, { error: `Branch ${git_branch} already exists` });
-        return;
-      }
-
-      try {
-        // Use the single entry point function for complete initialization
-        worktreePath = await initializeSparkleWorktree(gitRoot, git_branch, directory, finalWorktreePath);
-
-        // Save configuration
-        config = { git_branch, directory, worktree_path: finalWorktreePath };
-
-        // Set sparkleDataPath
-        sparkleDataPath = join(worktreePath, directory);
-
-        // Set base directory for sparkle.js
-        sparkle.setBaseDirectory(sparkleDataPath);
-
-        // Inject the aggregate manager into sparkle.js (dependency injection)
-        const aggregateManagerModule = await import('../src/aggregateManager.js');
-        sparkle.setAggregateManager(aggregateManagerModule);
-
-        // Inject the git scheduler into sparkle.js (dependency injection)
-        const { scheduleOutboundGit } = await import('../src/gitCommitScheduler.js');
-        sparkle.setGitScheduler(scheduleOutboundGit);
-
-        // Initialize aggregate store
-        await sparkle.initializeAggregateStore();
-
-        // Register SSE broadcast callback for aggregate changes
-        sparkle.onAggregateChanged((itemId) => {
-          broadcastSSE('aggregatesUpdated', {
-            itemIds: [itemId],
-            reason: 'user_edit'
-          });
-        });
-
-        // Register git scheduler callback
-        setSchedulerCallback(async () => {
-          await performCommitAndFetch();
-        });
-
-        // Update package.json in working directory
-        await updatePackageJson(config);
-
-        // Start periodic fetch (unless in postinstall mode)
-        if (!isPostInstall) {
-          startPeriodicFetch();
-        }
-
-        sendJSON(res, 200, {
-          success: true,
-          message: 'Sparkle initialized successfully. Please commit the package.json changes.',
-          postinstall: isPostInstall  // Let the UI know we're in postinstall mode
-        });
-
-        // If in postinstall mode, shut down after a brief delay to allow UI to update
-        if (isPostInstall) {
-          setTimeout(() => {
-            console.log('🔴 DAEMON EXIT REASON: Postinstall configuration complete (exit code 0)');
-            console.log('Postinstall configuration complete. Shutting down...');
-
-            // Set shutdown flag - this prevents any further SSE broadcasts
-            shuttingDown = true;
-
-            if (logger) logger.info('Daemon exiting', { reason: 'postinstall_complete' });
-
-            // Close all SSE connections
-            console.log(`Closing ${sseClients.length} SSE connections...`);
-            sseClients.forEach(client => {
-              try {
-                client.end();
-              } catch (error) {
-                console.error('Error closing SSE client:', error.message);
-              }
-            });
-            sseClients = [];
-
-            server.close(() => process.exit(0));
-          }, 3000);
-        }
-      } catch (error) {
-        sendJSON(res, 500, { error: error.message });
-      }
       return;
     }
 
@@ -1778,12 +1620,20 @@ async function main() {
   if (logger) logger.info('Registering git availability observer');
   onGitAvailabilityChange(updateGitAvailability);
 
-  // Load configuration
+  // Load configuration - REQUIRED for daemon to start
   if (logger) logger.info('Loading configuration');
   const hasConfig = await loadConfig();
   if (logger) logger.info('Configuration loaded', { hasConfig });
 
-  if (hasConfig) {
+  if (!hasConfig) {
+    console.error('Error: Sparkle is not configured in this repository.');
+    console.error('Run: npm install --save-dev sparkle-X.Y.Z.tgz');
+    if (logger) logger.error('Daemon exiting', { reason: 'no_config' });
+    process.exit(1);
+  }
+
+  // Configuration exists, proceed with startup
+  if (true) {
     if (logger) logger.info('Config exists, checking worktree');
     // Update paths based on loaded config
     worktreePath = join(gitRoot, config.worktree_path);
@@ -1969,40 +1819,9 @@ async function main() {
         console.log('Background initial fetch failed (normal if offline):', error.message);
         if (logger) logger.warn('Background initial fetch failed', { error: error.message });
       });
-
-      // Open browser to ensure at least one client connects (keeps daemon alive)
-      // Skip browser in test mode (tests will connect via API)
-      if (!isTestMode) {
-        console.log('Opening browser...');
-        if (logger) logger.info('Opening browser', { portConflictDetected });
-
-        // If port conflict detected, open error page instead of list view
-        if (portConflictDetected) {
-          await openBrowser(`http://localhost:${port}/port_conflict.html`);
-        } else {
-          await openBrowser(`http://localhost:${port}`);
-        }
-      } else {
-        if (logger) logger.info('Test mode: skipping browser');
-      }
-    } else {
-      // Not configured yet
-      if (logger) logger.info('Not configured, handling based on mode');
-      // In test mode, write port to a temp file so tests can find it
-      if (isTestMode) {
-        const testPortFile = join(gitRoot, '.sparkle-test-port');
-        await writeFile(testPortFile, port.toString(), 'utf8');
-        console.log('Test mode: skipping browser, waiting for API configuration...');
-        if (logger) logger.info('Test mode: wrote port to temp file');
-      } else {
-        // Open browser for configuration
-        console.log('Opening browser for configuration...');
-        await openBrowser(`http://localhost:${port}`);
-        if (logger) logger.info('Opened browser for configuration');
-      }
     }
 
-    // Start the no-client timeout - will shut down if no clients connect within 60 seconds
+    // Start the no-client timeout - will shut down if no clients connect within timeout
     if (logger) logger.info('Starting no-client timeout');
     startNoClientTimeout();
     if (logger) logger.info('Startup complete');

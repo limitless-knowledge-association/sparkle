@@ -72,6 +72,20 @@ export class Sparkle {
   }
 
   /**
+   * Stop the Sparkle instance and clean up resources
+   * Cancels any pending git operations
+   * @returns {Promise<void>}
+   */
+  async stop() {
+    // Cancel any pending git commit operations in GitOperations
+    if (this.gitOps) {
+      this.gitOps.cancelPendingCommit();
+    }
+
+    this.initialized = false;
+  }
+
+  /**
    * Check if initialized and throw if not
    * @private
    */

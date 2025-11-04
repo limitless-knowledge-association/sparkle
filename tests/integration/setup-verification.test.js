@@ -1,7 +1,5 @@
-#!/usr/bin/env node
-
 /**
- * Setup Verification Test
+ * Setup Verification Test (Jest version)
  *
  * Tests the two critical setup paths:
  * 1. setupFirstCloneForSparkle - First clone creates sparkle branch
@@ -16,13 +14,10 @@
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
 import { mkdir, rm, writeFile, readFile, copyFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { existsSync } from 'fs';
 
 const execAsync = promisify(execCallback);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Import the functions we need from src
 import {
@@ -33,13 +28,22 @@ import {
   commitAndPush,
   getLatestOriginCommit,
   sparkleBranchExistsInOrigin
-} from '../src/gitBranchOps.js';
+} from '../../src/gitBranchOps.js';
+
+// Helper: Get tarball path for current version
+async function getTarballPath() {
+  const packageJsonPath = join(process.cwd(), 'package.json');
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  const version = packageJson.version;
+  const tarballName = `sparkle-${version}.tgz`;
+  return join(process.cwd(), tarballName);
+}
 
 /**
  * Setup first clone for Sparkle - mirrors what daemon does for new install
  * This is the path when sparkle branch doesn't exist yet
  */
-async function setupFirstCloneForSparkle(clonePath, tarballPath) {
+async function setupFirstCloneForSparkle(clonePath, tarballPath, tarballName) {
   console.log(`\n📦 Setting up first clone: ${clonePath}`);
 
   const git_branch = 'sparkle';
@@ -47,8 +51,8 @@ async function setupFirstCloneForSparkle(clonePath, tarballPath) {
 
   // 1. Copy tarball and commit it (so other clones can get it)
   console.log('  1. Copying and committing tarball...');
-  await copyFile(tarballPath, join(clonePath, 'sparkle-1.0.153.tgz'));
-  await execAsync('git add sparkle-1.0.153.tgz', { cwd: clonePath });
+  await copyFile(tarballPath, join(clonePath, tarballName));
+  await execAsync(`git add ${tarballName}`, { cwd: clonePath });
   await execAsync('git commit -m "Add Sparkle tarball"', { cwd: clonePath });
   await execAsync('git push', { cwd: clonePath });
 
@@ -62,7 +66,7 @@ async function setupFirstCloneForSparkle(clonePath, tarballPath) {
       "directory": directory
     },
     "dependencies": {
-      "sparkle": "file:sparkle-1.0.153.tgz"
+      "sparkle": `file:${tarballName}`
     }
   };
   await writeFile(join(clonePath, 'package.json'), JSON.stringify(packageJson, null, 2));
@@ -173,62 +177,27 @@ async function verifyGitSetup(clonePath, cloneName) {
   const worktreePath = join(clonePath, '.sparkle-worktree');
 
   // Check 1: Sparkle branch exists
-  try {
-    const { stdout } = await execAsync('git branch', { cwd: worktreePath });
-    if (!stdout.includes('sparkle')) {
-      throw new Error('Sparkle branch not found');
-    }
-    console.log('  ✓ Sparkle branch exists');
-  } catch (error) {
-    console.error('  ✗ Sparkle branch check failed:', error.message);
-    return false;
-  }
+  const { stdout: branchList } = await execAsync('git branch', { cwd: worktreePath });
+  expect(branchList).toContain('sparkle');
+  console.log('  ✓ Sparkle branch exists');
 
   // Check 2: Upstream tracking configured
-  try {
-    const { stdout } = await execAsync('git branch -vv', { cwd: worktreePath });
-    if (!stdout.includes('[origin/sparkle]')) {
-      console.error('  ✗ Upstream tracking NOT configured');
-      console.error('    Current branch info:', stdout.trim());
-      return false;
-    }
-    console.log('  ✓ Upstream tracking configured to origin/sparkle');
-  } catch (error) {
-    console.error('  ✗ Upstream tracking check failed:', error.message);
-    return false;
-  }
+  const { stdout: branchInfo } = await execAsync('git branch -vv', { cwd: worktreePath });
+  expect(branchInfo).toContain('[origin/sparkle]');
+  console.log('  ✓ Upstream tracking configured to origin/sparkle');
 
   // Check 3: Sparse checkout configured
-  try {
-    const { stdout } = await execAsync('git sparse-checkout list', { cwd: worktreePath });
-    if (!stdout.includes('sparkle-data')) {
-      throw new Error('Sparse checkout not configured for sparkle-data');
-    }
-    console.log('  ✓ Sparse checkout configured for sparkle-data');
-  } catch (error) {
-    console.error('  ✗ Sparse checkout check failed:', error.message);
-    return false;
-  }
+  const { stdout: sparseCheckout } = await execAsync('git sparse-checkout list', { cwd: worktreePath });
+  expect(sparseCheckout).toContain('sparkle-data');
+  console.log('  ✓ Sparse checkout configured for sparkle-data');
 
   // Check 4: Can fetch from origin
-  try {
-    await execAsync('git fetch origin', { cwd: worktreePath });
-    console.log('  ✓ Can fetch from origin');
-  } catch (error) {
-    console.error('  ✗ Fetch from origin failed:', error.message);
-    return false;
-  }
+  await execAsync('git fetch origin', { cwd: worktreePath });
+  console.log('  ✓ Can fetch from origin');
 
   // Check 5: Can pull from upstream
-  try {
-    await execAsync('git pull --no-edit', { cwd: worktreePath });
-    console.log('  ✓ Can pull from upstream');
-  } catch (error) {
-    console.error('  ✗ Pull from upstream failed:', error.message);
-    return false;
-  }
-
-  return true;
+  await execAsync('git pull --no-edit', { cwd: worktreePath });
+  console.log('  ✓ Can pull from upstream');
 }
 
 /**
@@ -271,66 +240,55 @@ async function createTestEnvironment(baseDir) {
   };
 }
 
-/**
- * Main test runner
- */
-async function run() {
-  console.log('======================================================================');
-  console.log('Setup Verification Test');
-  console.log('======================================================================\n');
-
+describe('Sparkle Setup Verification', () => {
   const baseDir = join(process.cwd(), '.integration_testing', 'setup-verification');
-  const tarballPath = join(process.cwd(), 'sparkle-1.0.153.tgz');
+  let tarballPath;
+  let tarballName;
+  let clone1Path;
+  let clone2Path;
 
-  try {
+  beforeAll(async () => {
+    // Get dynamic tarball path
+    tarballPath = await getTarballPath();
+    const packageJson = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8'));
+    tarballName = `sparkle-${packageJson.version}.tgz`;
+
+    console.log('\n======================================================================');
+    console.log('Setup Verification Test');
+    console.log('======================================================================');
+    console.log(`Using tarball: ${tarballName}\n`);
+
     // Create test environment
-    const { clone1Path, clone2Path } = await createTestEnvironment(baseDir);
+    const env = await createTestEnvironment(baseDir);
+    clone1Path = env.clone1Path;
+    clone2Path = env.clone2Path;
+  });
 
-    // Test 1: Setup first clone
+  test('first clone setup creates sparkle branch and configures git correctly', async () => {
     console.log('\n📋 Test 1: Setup First Clone');
     console.log('─'.repeat(70));
-    await setupFirstCloneForSparkle(clone1Path, tarballPath);
-    const clone1Valid = await verifyGitSetup(clone1Path, 'Clone 1');
 
-    if (!clone1Valid) {
-      console.error('\n❌ Clone 1 verification FAILED');
-      process.exit(1);
-    }
+    await setupFirstCloneForSparkle(clone1Path, tarballPath, tarballName);
+    await verifyGitSetup(clone1Path, 'Clone 1');
+
     console.log('\n✅ Clone 1 verification PASSED');
+  }, 120000); // 2 minute timeout
 
-    // Test 2: Enable sparkle in later clone
+  test('later clone can enable sparkle using existing branch from origin', async () => {
     console.log('\n📋 Test 2: Enable Sparkle in Later Clone');
     console.log('─'.repeat(70));
+
     await enableSparkleInLaterClone(clone2Path);
-    const clone2Valid = await verifyGitSetup(clone2Path, 'Clone 2');
+    await verifyGitSetup(clone2Path, 'Clone 2');
 
-    if (!clone2Valid) {
-      console.error('\n❌ Clone 2 verification FAILED');
-      process.exit(1);
-    }
     console.log('\n✅ Clone 2 verification PASSED');
+  }, 120000); // 2 minute timeout
 
-    // Final summary
+  afterAll(() => {
     console.log('\n' + '='.repeat(70));
-    console.log('✅ ALL VERIFICATION TESTS PASSED');
-    console.log('='.repeat(70));
-    console.log('\nTest artifacts available at:', baseDir);
+    console.log('Test artifacts available at:', baseDir);
     console.log('  - Clone 1:', clone1Path);
     console.log('  - Clone 2:', clone2Path);
-    console.log('');
-
-  } catch (error) {
-    console.error('\n❌ TEST FAILED');
-    console.error('Error:', error.message);
-    console.error('\nStack trace:');
-    console.error(error.stack);
-    process.exit(1);
-  }
-}
-
-// Run if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  run();
-}
-
-export { setupFirstCloneForSparkle, enableSparkleInLaterClone, verifyGitSetup };
+    console.log('='.repeat(70) + '\n');
+  });
+});

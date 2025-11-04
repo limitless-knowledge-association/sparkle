@@ -128,7 +128,6 @@
           name="git_branch"
           value="sparkle"
           required
-          pattern="[a-zA-Z0-9_\-/]+"
         />
         <div class="help-text">Name of the dedicated git branch for Sparkle data</div>
       </div>
@@ -168,6 +167,24 @@
     const messageDiv = document.getElementById('message');
     const loadingDiv = document.getElementById('loading');
 
+    // Get and display Sparkle version from response headers
+    const sparkleVersion = document.currentScript.ownerDocument.defaultView.performance
+      .getEntriesByType('navigation')[0]?.serverTiming?.[0]?.name ||
+      new URLSearchParams(window.location.search).get('version') || 'unknown';
+
+    // Try to get version from a simple fetch to current page
+    (async () => {
+      try {
+        const response = await fetch(window.location.href, { method: 'HEAD' });
+        const version = response.headers.get('X-Sparkle-Version') || 'unknown';
+        console.log(`Sparkle Configuration - Version: ${version}`);
+        // Update subtitle to show version
+        document.querySelector('.subtitle').textContent = `Set up Sparkle for this repository (v${version})`;
+      } catch (error) {
+        console.log('Sparkle Configuration - Version: unknown');
+      }
+    })();
+
     function showMessage(text, type) {
       messageDiv.textContent = text;
       messageDiv.className = `message ${type}`;
@@ -197,6 +214,8 @@
         if (data.isRegularDependency && !data.isDevDependency) {
           const packageSpec = data.packageSpec || 'sparkle-<version>.tgz';
           showMessage(`⚠️ Sparkle is installed as a regular dependency. To fix this, close this window and run:\n\nnpm uninstall sparkle\nnpm install --save-dev ${packageSpec}\n\nThen complete the configuration when the window reopens.`, 'info');
+          // Enable ESC to close window when warning is shown
+          configurationComplete = true;
         }
       } catch (error) {
         // Silently ignore if check fails
@@ -206,7 +225,61 @@
     // Check on page load
     checkDependencyWarning();
 
+    // Add blur validation for git_branch
+    const gitBranchInput = document.getElementById('git_branch');
+
+    // Clear validation error when user types
+    gitBranchInput.addEventListener('input', () => {
+      console.log('[Config] Input changed, clearing validation');
+      gitBranchInput.setCustomValidity('');
+    });
+
+    gitBranchInput.addEventListener('blur', () => {
+      const value = gitBranchInput.value.trim();
+      const branchNameRegex = /^[a-zA-Z0-9_\-\/]+$/;
+      console.log('[Config] Blur validation for branch name:', value);
+
+      if (value && !branchNameRegex.test(value)) {
+        console.log('[Config] Branch name validation FAILED');
+        gitBranchInput.setCustomValidity('Branch name can only contain letters, numbers, dashes, underscores, and slashes');
+        gitBranchInput.reportValidity();
+      } else {
+        console.log('[Config] Branch name validation OK');
+        gitBranchInput.setCustomValidity('');
+      }
+    });
+
+    // Add Enter key logging for all inputs
+    const textInputs = document.querySelectorAll('input[type="text"]');
+    console.log('[Config] Found', textInputs.length, 'text inputs');
+    textInputs.forEach(input => {
+      console.log('[Config] Adding Enter key listener to:', input.id);
+      input.addEventListener('keydown', (e) => {
+        console.log('[Config] Keydown event in', input.id, '- key:', e.key);
+        if (e.key === 'Enter') {
+          console.log('[Config] Enter key pressed in input:', input.id);
+          console.log('[Config] Form validity:', form.checkValidity());
+          console.log('[Config] Input validity:', input.checkValidity());
+          console.log('[Config] Custom validity:', input.validationMessage);
+        }
+      });
+    });
+
+    // Add global Enter key handler to submit form from anywhere
+    // Add ESC key handler to close window after successful configuration
+    let configurationComplete = false;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !configurationComplete) {
+        console.log('[Config] Global Enter key pressed - submitting form');
+        form.requestSubmit();
+      }
+      if (e.key === 'Escape' && configurationComplete) {
+        window.close();
+      }
+    });
+
     form.addEventListener('submit', async (e) => {
+      console.log('[Config] Form submit event triggered');
       e.preventDefault();
       hideMessage();
 
@@ -221,6 +294,13 @@
       // Validation
       if (!data.git_branch || !data.directory || !data.worktree_path) {
         showMessage('Please fill in all required fields', 'error');
+        return;
+      }
+
+      // Validate git branch name - allow alphanumeric, dash, underscore, slash
+      const branchNameRegex = /^[a-zA-Z0-9_\-\/]+$/;
+      if (!branchNameRegex.test(data.git_branch)) {
+        showMessage('Branch name can only contain letters, numbers, dashes, underscores, and slashes', 'error');
         return;
       }
 
@@ -250,6 +330,7 @@
         hideLoading();
 
         if (response.ok) {
+          configurationComplete = true;
           if (result.postinstall) {
             // Postinstall mode - agent will shut down
             showMessage(result.message, 'success');
@@ -258,7 +339,7 @@
                 <h3 style="margin-top: 0; color: #667eea;">✨ Setup Complete!</h3>
                 <p style="margin: 10px 0;">To use Sparkle, run:</p>
                 <pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto;"><code>npx sparkle browser</code></pre>
-                <p style="margin: 10px 0 0 0; font-size: 13px; color: #666;">You can close this window now.</p>
+                <p style="margin: 10px 0 0 0; font-size: 13px; color: #666;">Press ESC or close this window manually.</p>
               </div>
             `;
           } else {

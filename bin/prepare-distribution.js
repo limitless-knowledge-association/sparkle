@@ -62,7 +62,6 @@ async function main() {
     bin: {
       'sparkle-no-daemon': './bin/sparkle_agent.js',
       'sparkle-daemon': './bin/sparkle_daemon_launch.js',
-      'sparkle-client': './bin/sparkle_client_launch.js',
       'sparkle-halt': './bin/sparkle_halt.js',
       'sparkle': './bin/sparkle.js',
       'recover-sparkle': './bin/recover-sparkle.js'

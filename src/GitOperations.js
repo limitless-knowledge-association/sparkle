@@ -100,6 +100,19 @@ export class GitOperations {
   }
 
   /**
+   * Force immediate commit and push, canceling any pending debounced commit
+   * Use this in tests or when you need to ensure changes are pushed immediately
+   * @returns {Promise<boolean>} True if successful
+   */
+  async forcePushNow() {
+    // Cancel the debounce timer
+    this.cancelPendingCommit();
+
+    // Immediately commit and push
+    return await this.commitAndPush();
+  }
+
+  /**
    * Commit and push local changes with retry logic
    * Migrated from sparkle_agent.js performCommitAndFetch()
    * @returns {Promise<boolean>} True if successful

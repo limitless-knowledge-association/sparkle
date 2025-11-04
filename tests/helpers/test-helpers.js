@@ -17,6 +17,18 @@ import { LogServer } from './log-server.js';
 
 const execAsync = promisify(exec);
 
+/**
+ * Get path to Sparkle tarball
+ * @returns {Promise<string>} Path to tarball
+ */
+export async function getTarballPath() {
+  const packageJsonPath = join(process.cwd(), 'package.json');
+  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+  const version = packageJson.version;
+  const tarballName = `sparkle-${version}.tgz`;
+  return join(process.cwd(), tarballName);
+}
+
 // Global log server for all tests
 let logServer = null;
 
@@ -71,10 +83,13 @@ export function createTestId() {
  * Does NOT destroy the container directory - leaves artifacts for inspection
  * Container is cleaned by integration test runs
  *
+ * @param {string} testFile - Test file path (use __filename or import.meta.url)
+ * @param {string} testName - Name of the specific test
  * @returns {Promise<string>} Path to unique test directory
  */
-export async function unit_test_setup() {
+export async function unit_test_setup(testFile = 'unknown', testName = 'unknown') {
   const { randomBytes } = await import('crypto');
+  const { basename } = await import('path');
 
   // Container directory (same as integration tests use)
   const containerDir = join(process.cwd(), '.integration_testing');
@@ -91,7 +106,24 @@ export async function unit_test_setup() {
     try {
       // Try to create directory - will fail if it already exists
       await mkdir(testDir, { recursive: false });
-      // Success! Directory created atomically
+
+      // Success! Directory created atomically - now write README.txt
+      const readmeContent = `Sparkle Unit Test Directory
+===========================
+
+Test File: ${basename(testFile)}
+Test Name: ${testName}
+Created:   ${new Date().toISOString()}
+Directory: ${testDir}
+
+This directory was automatically created during test execution.
+It can be safely deleted.
+
+The parent directory (.integration_testing/) is git-ignored and
+cleaned up by integration test runs.
+`;
+
+      await writeFile(join(testDir, 'README.txt'), readmeContent, 'utf8');
       return testDir;
     } catch (error) {
       // Directory already exists (or other error), loop and try again with new random name
@@ -118,6 +150,29 @@ export async function createTestEnvironment(baseDir, testName, numClones = 1, te
   await mkdir(testDir, { recursive: true });
 
   console.log(`Creating test environment in ${testDir}`);
+
+  // Write README.txt first
+  const readmeContent = `Sparkle Integration Test Environment
+=====================================
+
+Test Name: ${testName}
+Test ID:   ${testId}
+Created:   ${new Date().toISOString()}
+Base Dir:  ${testDir}
+
+Structure:
+  repo.git/   - Bare git repository (origin)
+  clone1/     - First clone (initialized with Sparkle)
+${Array.from({length: numClones - 1}, (_, i) =>
+  `  clone${i+2}/     - Clone ${i+2} (pulls from origin)`).join('\n')}
+
+This directory contains full git repositories with worktrees for
+integration testing. It can be safely deleted after tests complete.
+
+The parent directory (.integration_testing/) is git-ignored.
+`;
+
+  await writeFile(join(testDir, 'README.txt'), readmeContent, 'utf8');
 
   // Create bare git repo
   const bareRepo = join(testDir, 'repo.git');

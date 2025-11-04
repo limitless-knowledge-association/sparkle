@@ -221,12 +221,6 @@ npx sparkle browser
 2. Opens your browser to the Sparkle web interface
 3. You can start creating items and managing dependencies
 
-**Alternative command:**
-```bash
-sparkle-client
-```
-(Note: Only works if node_modules/.bin is in your PATH)
-
 ---
 
 ### Starting the Daemon Only

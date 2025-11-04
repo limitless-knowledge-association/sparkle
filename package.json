@@ -1,24 +1,25 @@
 {
   "name": "sparkle",
-  "version": "1.0.289",
+  "version": "1.0.317",
   "description": "A system to keep track of all the details using git as storage",
   "type": "module",
   "main": "src/sparkle.js",
   "scripts": {
-    "test": "node tests/sparkle.test.js && node tests/listFilter.test.js && node tests/sparkle-cli.test.js",
-    "pretest:integration": "node bin/bake-version.js",
-    "test:integration": "node tests/integration-test.js",
-    "test:cleanup": "node bin/test-cleanup.js",
-    "test:all": "npm run test && npm run test:integration",
+    "pretest": "node bin/pretest-check.js && rm -rf .integration_testing",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "pretest:unit": "node bin/pretest-check.js && rm -rf .integration_testing",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --selectProjects unit",
+    "pretest:integration": "node bin/pretest-check.js && rm -rf .integration_testing",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --selectProjects integration",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --selectProjects unit",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:cleanup": "rm -rf .integration_testing",
     "release": "npm version patch && npm run pack",
     "release:minor": "npm version minor && npm run pack",
     "release:major": "npm version major && npm run pack",
     "release:rebuild": "npm run pack",
     "pack": "node bin/prepare-distribution.js",
-    "postinstall": "node bin/postinstall.js",
-    "sparkle": "sparkle-client",
-    "sparkle-daemon": "sparkle-daemon",
-    "sparkle-halt": "sparkle-halt"
+    "postinstall": "node bin/postinstall.js"
   },
   "keywords": [
     "tracking",
@@ -41,6 +42,7 @@
     "LICENSE"
   ],
   "devDependencies": {
+    "jest": "^29.7.0",
     "sparkle": "file:sparkle-1.0.176.tgz"
   },
   "sparkle_config": {
