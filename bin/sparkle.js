@@ -32,6 +32,7 @@ import { Sparkle } from '../src/sparkle-class.js';
 import { spawnProcess } from '../src/execUtils.js';
 import { ensureDaemon } from '../src/cliDaemonLauncher.js';
 import { makeApiRequest } from '../src/daemonClient.js';
+import { openBrowser } from '../src/browserLauncher.js';
 
 const command = process.argv[2];
 const arg1 = process.argv[3];
@@ -368,31 +369,13 @@ async function inspectCommand(itemId, location) {
  */
 async function browserCommand() {
   try {
-    // Use the existing sparkle_client_launch script
-    // Use fileURLToPath to ensure Windows doesn't fail
-    const launchScript = fileURLToPath(new URL('../bin/sparkle_client_launch.js', import.meta.url));
+    const dataDir = await getDataDirectory();
+    const port = await ensureDaemon(dataDir);
 
-    if (!existsSync(launchScript)) {
-      throw new Error('Sparkle client launch script not found');
-    }
-
-    // Spawn the launch script
-    // Suppress all output - user just wants browser to open
-    // spawnProcess from execUtils automatically hides windows on Windows
-    const child = spawnProcess('node', [launchScript], {
-      stdio: 'ignore',
-      detached: false
-    });
-
-    child.on('error', (error) => {
-      console.error(`Error launching browser: ${error.message}`);
-      process.exit(1);
-    });
-
-    child.on('exit', (code) => {
-      process.exit(code);
-    });
-
+    // Open browser to daemon
+    const url = `http://localhost:${port}`;
+    console.log(`Opening Sparkle at ${url}`);
+    await openBrowser(url);
   } catch (error) {
     console.error(`Error: ${error.message}`);
     process.exit(1);
