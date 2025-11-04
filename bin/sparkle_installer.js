@@ -241,7 +241,8 @@ async function handleRequest(req, res) {
 
       sendJSON(res, 200, {
         success: true,
-        message: 'Sparkle initialized successfully. Please commit the package.json changes.'
+        message: 'Sparkle initialized successfully. Please commit the package.json changes.',
+        postinstall: true  // Signal to UI that installer will shut down
       });
 
       // Shut down after a brief delay to allow UI to update
