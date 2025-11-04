@@ -86,8 +86,8 @@ export async function getItemDetails(baseDirectory, itemId) {
  * @returns {Promise<Set<string>|null>} Set of allowed statuses, or null if no validation
  */
 export async function loadAllowedStatuses(baseDirectory) {
-  // Try new location first: .sparkle-worktree/sparkle-data/.aggregates/statuses.json
-  const aggregatePath = join(baseDirectory, '.sparkle-worktree', 'sparkle-data', '.aggregates', 'statuses.json');
+  // Try new location first: .aggregates/statuses.json
+  const aggregatePath = join(baseDirectory, '.aggregates', 'statuses.json');
 
   let data = null;
 
@@ -174,7 +174,7 @@ export async function getAllowedStatuses(baseDirectory) {
  * @returns {Promise<Array<Object>>} Array of takers [{name, email, hash}]
  */
 export async function getTakers(baseDirectory) {
-  const aggregatePath = join(baseDirectory, '.sparkle-worktree', 'sparkle-data', '.aggregates', 'takers.json');
+  const aggregatePath = join(baseDirectory, '.aggregates', 'takers.json');
 
   if (!fileExists(aggregatePath)) {
     // No takers file exists yet, return empty array
