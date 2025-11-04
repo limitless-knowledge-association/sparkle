@@ -16,7 +16,7 @@
 import { createServer } from 'http';
 import { readFile, writeFile } from 'fs/promises';
 import { join, dirname, isAbsolute, basename } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { existsSync } from 'fs';
 import {
   getGitRoot,
