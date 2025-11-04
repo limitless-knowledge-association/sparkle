@@ -316,11 +316,4 @@ describe('Sparkle CLI', () => {
       }
     }, 90000); // 90s timeout - runs two CLI commands
   });
-
-  describe.skip('Configuration resolution', () => {
-    test('uses package.json config', async () => {
-      // This would require setting up a full git repo with package.json
-      // Skipped for now - covered by integration tests
-    });
-  });
 });
