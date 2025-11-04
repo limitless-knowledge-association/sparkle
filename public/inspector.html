@@ -44,7 +44,6 @@
     }
 
     .tree-container {
-      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
       font-size: 14px;
       line-height: 1.6;
       margin-top: 15px;
@@ -93,9 +92,8 @@
       color: #16a34a;
     }
 
+    /* Item ID styles moved to sparkle-base.css (.item-id class) */
     .node-itemid {
-      color: #667eea;
-      font-weight: 600;
       margin-right: 8px;
     }
 
@@ -360,7 +358,7 @@
           html += `
             <div class="tree-node anchor-node" style="padding-left: 0px;">
               <div class="node-content" onclick="handleItemClick('${anchorItemId}')">
-                <span class="node-itemid">★ ${anchorItemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>
+                <span class="item-id node-itemid">★ ${anchorItemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>
               </div>
             </div>
           `;
@@ -397,7 +395,7 @@
       return `
         <div class="tree-node" style="padding-left: ${indentPx}px;">
           <div class="node-content" onclick="handleItemClick('${itemId}')">
-            <span class="node-relation">${relationText}</span><span class="node-itemid">${itemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>
+            <span class="node-relation">${relationText}</span><span class="item-id node-itemid">${itemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>
           </div>
         </div>
       `;

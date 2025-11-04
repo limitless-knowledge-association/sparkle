@@ -86,9 +86,8 @@
       margin-right: 6px;
     }
 
+    /* Item ID styles moved to sparkle-base.css (.item-id class) */
     .node-itemid {
-      color: #667eea;
-      font-weight: 600;
       margin-right: 8px;
     }
 
@@ -239,7 +238,7 @@
             html += `
               <div class="tree-node" data-seq="${seq}" data-root="${root.itemId}" style="padding-left: ${indentPx}px;">
                 <div class="node-content">
-                  <span class="node-icon" onclick="handleNodeExpandCollapse('${root.itemId}', ${seq}, event)">${icon}</span><span class="node-details" onclick="handleItemClick('${itemId}')">${relationText}<span class="node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
+                  <span class="node-icon" onclick="handleNodeExpandCollapse('${root.itemId}', ${seq}, event)">${icon}</span><span class="node-details" onclick="handleItemClick('${itemId}')">${relationText}<span class="item-id node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
                 </div>
               </div>
             `;
@@ -252,7 +251,7 @@
           html += `
             <div class="tree-node" data-root="${root.itemId}" style="padding-left: 0px;">
               <div class="node-content">
-                <span class="node-icon" onclick="handleRootExpandCollapse('${root.itemId}', event)">${icon}</span><span class="node-details" onclick="handleItemClick('${root.itemId}')"><span class="node-itemid">${root.itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
+                <span class="node-icon" onclick="handleRootExpandCollapse('${root.itemId}', event)">${icon}</span><span class="node-details" onclick="handleItemClick('${root.itemId}')"><span class="item-id node-itemid">${root.itemId}</span><span class="node-tagline">${escapeHtml(tagline)}</span></span>
               </div>
             </div>
           `;

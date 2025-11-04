@@ -539,6 +539,13 @@ textarea {
   margin-top: 0;
 }
 
+/* ===== Item IDs ===== */
+.item-id {
+  font-family: monospace;
+  color: #667eea;
+  font-weight: 600;
+}
+
 /* ===== Status Badges ===== */
 .status-badge {
   display: inline-block;
