@@ -206,6 +206,24 @@
     // Check on page load
     checkDependencyWarning();
 
+    // Add Enter key handler for inputs (form submit already handles this, but make it explicit)
+    document.querySelectorAll('input[type="text"]').forEach(input => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          form.requestSubmit();
+        }
+      });
+    });
+
+    // Add ESC key handler to close window after successful configuration
+    let configurationComplete = false;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && configurationComplete) {
+        window.close();
+      }
+    });
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       hideMessage();
@@ -250,6 +268,7 @@
         hideLoading();
 
         if (response.ok) {
+          configurationComplete = true;
           if (result.postinstall) {
             // Postinstall mode - agent will shut down
             showMessage(result.message, 'success');
@@ -258,7 +277,7 @@
                 <h3 style="margin-top: 0; color: #667eea;">✨ Setup Complete!</h3>
                 <p style="margin: 10px 0;">To use Sparkle, run:</p>
                 <pre style="background: #fff; padding: 10px; border-radius: 4px; overflow-x: auto;"><code>npx sparkle browser</code></pre>
-                <p style="margin: 10px 0 0 0; font-size: 13px; color: #666;">You can close this window now.</p>
+                <p style="margin: 10px 0 0 0; font-size: 13px; color: #666;">Press ESC or close this window manually.</p>
               </div>
             `;
           } else {
