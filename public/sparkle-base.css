@@ -539,6 +539,44 @@ textarea {
   margin-top: 0;
 }
 
+/* ===== Item IDs ===== */
+.item-id {
+  font-family: monospace;
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* ===== Status Badges ===== */
+.status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.status-badge.completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.pending {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.status-badge.blocked {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Alias for incomplete (same as blocked) */
+.status-badge.incomplete {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* ===== Helper Classes ===== */
 .text-center {
   text-align: center;

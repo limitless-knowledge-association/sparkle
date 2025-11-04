@@ -44,7 +44,6 @@
     }
 
     .tree-container {
-      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
       font-size: 14px;
       line-height: 1.6;
       margin-top: 15px;
@@ -93,9 +92,8 @@
       color: #16a34a;
     }
 
+    /* Item ID styles moved to sparkle-base.css (.item-id class) */
     .node-itemid {
-      color: #667eea;
-      font-weight: 600;
       margin-right: 8px;
     }
 
@@ -103,22 +101,10 @@
       color: var(--text-primary);
     }
 
+    /* Status badge styles moved to sparkle-base.css (using .status-badge class) */
+    /* Keep node-status as alias with left margin for spacing */
     .node-status {
       margin-left: 8px;
-      font-size: 12px;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-style: normal;
-    }
-
-    .node-status.completed {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .node-status.incomplete {
-      background: #fef3c7;
-      color: #92400e;
     }
 
     .section-header {
@@ -368,11 +354,11 @@
         if (anchorNode) {
           const anchorDetails = await apiCall('/api/getItemDetails', { itemId: anchorItemId });
           const statusClass = anchorDetails.status === 'completed' ? 'completed' : 'incomplete';
-          const statusBadge = `<span class="node-status ${statusClass}">${anchorDetails.status}</span>`;
+          const statusBadge = `<span class="status-badge node-status ${statusClass}">${anchorDetails.status}</span>`;
           html += `
             <div class="tree-node anchor-node" style="padding-left: 0px;">
               <div class="node-content" onclick="handleItemClick('${anchorItemId}')">
-                <span class="node-itemid">★ ${anchorItemId}</span><span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>${statusBadge}
+                <span class="item-id node-itemid">★ ${anchorItemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(anchorDetails.tagline)}</span>
               </div>
             </div>
           `;
@@ -404,12 +390,12 @@
       const indentPx = depth * 24; // 24px per level
 
       const statusClass = itemDetails.status === 'completed' ? 'completed' : 'incomplete';
-      const statusBadge = `<span class="node-status ${statusClass}">${itemDetails.status}</span>`;
+      const statusBadge = `<span class="status-badge node-status ${statusClass}">${itemDetails.status}</span>`;
 
       return `
         <div class="tree-node" style="padding-left: ${indentPx}px;">
           <div class="node-content" onclick="handleItemClick('${itemId}')">
-            <span class="node-relation">${relationText}</span><span class="node-itemid">${itemId}</span><span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>${statusBadge}
+            <span class="node-relation">${relationText}</span><span class="item-id node-itemid">${itemId}</span>${statusBadge}<span class="node-tagline">${escapeHtml(itemDetails.tagline)}</span>
           </div>
         </div>
       `;
