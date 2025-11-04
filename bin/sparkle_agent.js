@@ -601,6 +601,14 @@ async function setupSparkleEnvironment() {
     }
   });
 
+  // Rebuild system aggregates (statuses, takers)
+  console.log('Rebuilding system aggregates...');
+  const { rebuildStatusesAggregate } = await import('../src/statusesAggregate.js');
+  const { rebuildTakersAggregate } = await import('../src/takersAggregate.js');
+  await rebuildStatusesAggregate(gitRoot);
+  await rebuildTakersAggregate(gitRoot);
+  console.log('System aggregates rebuilt');
+
   // Validate aggregates on startup
   const aggregateStatus = await sparkle.validateAllAggregates();
 
