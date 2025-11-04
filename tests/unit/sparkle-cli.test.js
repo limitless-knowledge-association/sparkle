@@ -554,6 +554,37 @@ describe('Sparkle CLI', () => {
       }
     }, 60000);
 
+    test('validates custom status values', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-custom-status');
+
+      try {
+        // Create custom statuses.json file with additional status
+        const { writeFile } = await import('fs/promises');
+        const { join } = await import('path');
+        const statusesPath = join(dataDir, 'statuses.json');
+        await writeFile(statusesPath, JSON.stringify(['in-progress', 'blocked']));
+
+        // Built-in statuses should still work
+        await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);
+        await execAsync(`node ${CLI_PATH} alter ${item1} status incomplete ${dataDir}`);
+
+        // Custom statuses should now work
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} status in-progress ${dataDir}`);
+        expect(stdout).toContain('Status changed to in-progress');
+
+        await execAsync(`node ${CLI_PATH} alter ${item1} status blocked ${dataDir}`);
+
+        // Invalid status should still fail
+        await expect(
+          execAsync(`node ${CLI_PATH} alter ${item1} status still-invalid ${dataDir}`)
+        ).rejects.toMatchObject({
+          code: 1
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
     test('returns JSON output with --json flag', async () => {
       const { env, dataDir, item1 } = await setupTestData('alter-json');
 
