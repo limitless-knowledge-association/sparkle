@@ -268,6 +268,7 @@ function displayItem(details, label = 'Item') {
 
 /**
  * Inspect command - Display item with full dependency chains
+ * Uses /api/dag to match inspector UX behavior exactly
  */
 async function inspectCommand(itemId, location) {
   const totalStartTime = Date.now();
@@ -285,32 +286,86 @@ async function inspectCommand(itemId, location) {
   const dataDir = await getDataDirectory(location);
   const port = await ensureDaemon(dataDir);
 
-  // Get the anchor item via daemon API
+  // Get the DAG data via daemon API (same as inspector UX)
   const fetchStartTime = Date.now();
-  const anchorDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
+  const dagData = await makeApiRequest(port, `/api/dag?referenceId=${encodeURIComponent(itemId)}`, 'GET');
   const fetchDuration = Date.now() - fetchStartTime;
-  console.error(`[CLI] Fetched anchor item via daemon (${fetchDuration}ms)`);
+  console.error(`[CLI] Fetched DAG data via daemon (${fetchDuration}ms)`);
+
+  if (!dagData || !dagData.nodes || dagData.nodes.length === 0) {
+    console.error('Error: No DAG data returned');
+    process.exit(1);
+  }
+
+  // Find the anchor node (depth 0)
+  const anchorNode = dagData.nodes.find(node => node.depth === 0);
+  if (!anchorNode) {
+    console.error('Error: Anchor node not found in DAG');
+    process.exit(1);
+  }
 
   console.log('');
   console.log('═'.repeat(80));
   console.log(`INSPECTOR VIEW - Anchor Item: ${itemId}`);
   console.log('═'.repeat(80));
 
-  // Display anchor item
+  // Get full details for anchor
+  const anchorDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
   displayItem(anchorDetails, 'ANCHOR');
 
+  // Show relationship lists for anchor
+  const dependsOn = anchorNode.full?.dependsOn || [];
+  const providesTo = anchorNode.full?.providesTo || [];
+
+  console.log('');
+  console.log(`Dependencies (needs): [${dependsOn.join(', ')}]`);
+  console.log(`Providers (needed by): [${providesTo.join(', ')}]`);
+
+  // Separate nodes into dependencies and providers
+  const dependencyNodes = [];
+  const providerNodes = [];
+
+  for (const node of dagData.nodes) {
+    if (node.item === itemId) continue; // Skip anchor
+
+    // Dependencies are items that the anchor depends on (depth > 0, in dependsOn chain)
+    // Providers are items that depend on the anchor (depth > 0, in providesTo chain)
+    if (dependsOn.includes(node.item)) {
+      dependencyNodes.push(node);
+    } else if (providesTo.includes(node.item)) {
+      providerNodes.push(node);
+    } else {
+      // This node is part of a deeper chain
+      // Check if it's in the dependency subtree or provider subtree
+      const isInDependencyChain = dagData.nodes.some(n =>
+        dependsOn.includes(n.item) && n.full?.dependsOn?.includes(node.item)
+      );
+      if (isInDependencyChain || node.depth < anchorNode.depth) {
+        dependencyNodes.push(node);
+      } else {
+        providerNodes.push(node);
+      }
+    }
+  }
+
   // Show dependencies (full chains)
-  if (anchorDetails.dependencies && anchorDetails.dependencies.length > 0) {
+  if (dependencyNodes.length > 0) {
     console.log('');
     console.log('═'.repeat(80));
-    console.log(`DEPENDENCIES (${anchorDetails.dependencies.length} items needed by anchor)`);
+    console.log(`DEPENDENCIES (${dependencyNodes.length} items in dependency tree)`);
     console.log('═'.repeat(80));
 
     const depsStartTime = Date.now();
-    for (const depId of anchorDetails.dependencies) {
+    for (const node of dependencyNodes) {
+      const depId = node.item;
+      const depDependsOn = node.full?.dependsOn || [];
+      const depProvidesTo = node.full?.providesTo || [];
+
       try {
         const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
         displayItem(depDetails, 'DEPENDENCY');
+        console.log(`  Dependencies: [${depDependsOn.join(', ')}]`);
+        console.log(`  Providers: [${depProvidesTo.join(', ')}]`);
       } catch (error) {
         console.log('');
         console.log('─'.repeat(80));
@@ -320,7 +375,7 @@ async function inspectCommand(itemId, location) {
       }
     }
     const depsDuration = Date.now() - depsStartTime;
-    console.error(`[CLI] Fetched ${anchorDetails.dependencies.length} dependencies via daemon (${depsDuration}ms)`);
+    console.error(`[CLI] Fetched ${dependencyNodes.length} dependencies via daemon (${depsDuration}ms)`);
   } else {
     console.log('');
     console.log('═'.repeat(80));
@@ -329,34 +384,40 @@ async function inspectCommand(itemId, location) {
     console.log('No dependencies');
   }
 
-  // Show dependents (full chains)
-  if (anchorDetails.dependents && anchorDetails.dependents.length > 0) {
+  // Show providers (full chains)
+  if (providerNodes.length > 0) {
     console.log('');
     console.log('═'.repeat(80));
-    console.log(`DEPENDENTS (${anchorDetails.dependents.length} items that need anchor)`);
+    console.log(`PROVIDERS (${providerNodes.length} items that depend on anchor)`);
     console.log('═'.repeat(80));
 
     const deptsStartTime = Date.now();
-    for (const depId of anchorDetails.dependents) {
+    for (const node of providerNodes) {
+      const provId = node.item;
+      const provDependsOn = node.full?.dependsOn || [];
+      const provProvidesTo = node.full?.providesTo || [];
+
       try {
-        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
-        displayItem(depDetails, 'DEPENDENT');
+        const provDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: provId });
+        displayItem(provDetails, 'PROVIDER');
+        console.log(`  Dependencies: [${provDependsOn.join(', ')}]`);
+        console.log(`  Providers: [${provProvidesTo.join(', ')}]`);
       } catch (error) {
         console.log('');
         console.log('─'.repeat(80));
-        console.log(`DEPENDENT: ${depId}`);
+        console.log(`PROVIDER: ${provId}`);
         console.log('─'.repeat(80));
         console.log(`Error: ${error.message}`);
       }
     }
     const deptsDuration = Date.now() - deptsStartTime;
-    console.error(`[CLI] Fetched ${anchorDetails.dependents.length} dependents via daemon (${deptsDuration}ms)`);
+    console.error(`[CLI] Fetched ${providerNodes.length} providers via daemon (${deptsDuration}ms)`);
   } else {
     console.log('');
     console.log('═'.repeat(80));
-    console.log('DEPENDENTS');
+    console.log('PROVIDERS');
     console.log('═'.repeat(80));
-    console.log('No dependents');
+    console.log('No providers');
   }
 
   console.log('');
