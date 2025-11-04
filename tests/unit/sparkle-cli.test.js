@@ -296,8 +296,9 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item1 } = await setupTestData('timing-logs');
 
       try {
-        const { stderr: catStderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
-        const { stderr: inspectStderr } = await execAsync(`node ${CLI_PATH} inspect ${item1} ${dataDir}`);
+        // Enable verbose logging to test timing logs
+        const { stderr: catStderr } = await execAsync(`SPARKLE_CLIENT_VERBOSE=true node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        const { stderr: inspectStderr } = await execAsync(`SPARKLE_CLIENT_VERBOSE=true node ${CLI_PATH} inspect ${item1} ${dataDir}`);
 
         // Verify timing logs for cat command
         expect(catStderr).toContain('[CLI]');
