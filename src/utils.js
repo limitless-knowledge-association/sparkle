@@ -168,3 +168,32 @@ export async function getAllowedStatuses(baseDirectory) {
   return Array.from(allowedStatuses).sort();
 }
 
+/**
+ * Get all known takers from the takers aggregate
+ * @param {string} baseDirectory - Base directory for sparkle data
+ * @returns {Promise<Array<Object>>} Array of takers [{name, email, hash}]
+ */
+export async function getTakers(baseDirectory) {
+  const aggregatePath = join(baseDirectory, '.sparkle-worktree', 'sparkle-data', '.aggregates', 'takers.json');
+
+  if (!fileExists(aggregatePath)) {
+    // No takers file exists yet, return empty array
+    return [];
+  }
+
+  try {
+    const takers = await readJsonFile(aggregatePath);
+
+    // Validate that it's an array
+    if (!Array.isArray(takers)) {
+      console.error('takers.json must contain a JSON array');
+      return [];
+    }
+
+    return takers;
+  } catch (error) {
+    console.error(`Error reading takers.json: ${error.message}`);
+    return [];
+  }
+}
+

@@ -601,6 +601,14 @@ async function setupSparkleEnvironment() {
     }
   });
 
+  // Rebuild system aggregates (statuses, takers)
+  console.log('Rebuilding system aggregates...');
+  const { rebuildStatusesAggregate } = await import('../src/statusesAggregate.js');
+  const { rebuildTakersAggregate } = await import('../src/takersAggregate.js');
+  await rebuildStatusesAggregate(gitRoot);
+  await rebuildTakersAggregate(gitRoot);
+  console.log('System aggregates rebuilt');
+
   // Validate aggregates on startup
   const aggregateStatus = await sparkle.validateAllAggregates();
 
@@ -1283,6 +1291,9 @@ async function handleRequest(req, res) {
       console.log(`API: takeItem called for item ${body.itemId}`);
       await sparkle.takeItem(body.itemId);
 
+      // Broadcast to all clients that takers list may have been updated
+      broadcastSSE('takersUpdated', {});
+
       // Send response immediately (git commit is automatically scheduled)
       sendJSON(res, 200, { success: true });
       return;
@@ -1399,6 +1410,12 @@ async function handleRequest(req, res) {
     if (path === '/api/allowedStatuses') {
       const statuses = await sparkle.getAllowedStatuses();
       sendJSON(res, 200, { statuses });
+      return;
+    }
+
+    if (path === '/api/getTakers') {
+      const takers = await sparkle.getTakers();
+      sendJSON(res, 200, { takers });
       return;
     }
 

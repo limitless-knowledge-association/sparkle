@@ -412,6 +412,7 @@
     import { ConfigurationSettings } from './ConfigurationSettings.js';
     import { initializeFilterModal, openFilterModal } from './filter-modal.js';
     import { ItemsCache } from './ItemsCache.js';
+    import { TakersCache } from './TakersCache.js';
     // Note: audit-trail.js only exports openAuditTrail (opens in new window, no initialization needed)
 
     // Global configuration instance
@@ -421,6 +422,10 @@
     // Global items cache instance
     const itemsCache = new ItemsCache();
     window.itemsCache = itemsCache; // Make available for debugging
+
+    // Global takers cache instance
+    const takersCache = new TakersCache();
+    window.takersCache = takersCache; // Make available for debugging
 
     let currentSHA = null;
     let pollingInterval = null;
@@ -512,10 +517,6 @@
       return details.monitors.some(monitor => monitor.email === currentUserEmail);
     }
 
-    // Note: updateTakenFilterOptions removed - no longer needed with modal approach
-    // If we want to show person-specific filter options in the modal in the future,
-    // we can update the filter-modal.js component to dynamically populate them
-
     // Render filter badges
     function renderFilterBadges() {
       const container = document.getElementById('filterBadges');
@@ -529,7 +530,17 @@
       };
 
       for (const [filterKey, value] of Object.entries(activeFilters)) {
-        const label = filterLabels[filterKey][value];
+        let label = filterLabels[filterKey][value];
+
+        // Handle taken filter - if value is an email, look up the name from TakersCache
+        if (filterKey === 'taken' && !label) {
+          // Check if this is a taker's email
+          const takerName = takersCache.getTakerName(value);
+          if (takerName) {
+            label = `Taken by: ${escapeHtml(takerName)}`;
+          }
+        }
+
         if (label) {
           badges.push(`
             <span class="filter-badge">
@@ -857,12 +868,23 @@
       // Note: statusesUpdated and configurationUpdated are now handled by ConfigurationSettings class
       // Note: aggregatesUpdated and rebuildCompleted are now handled by ItemsCache class
 
-      // Initialize modals/components
+      // Initialize TakersCache first (blocking - loads all known takers)
+      const takersCacheStartTime = Date.now();
+      await takersCache.initialize();
+      frontendLog(`init() - TakersCache initialized: ${Date.now() - takersCacheStartTime}ms`);
+
+      // Subscribe to TakersCache changes (observer pattern)
+      takersCache.onChange(() => {
+        frontendLog('TakersCache changed, re-rendering badges');
+        renderFilterBadges();
+      });
+
+      // Initialize modals/components (pass TakersCache to filter modal)
       const modalStartTime = Date.now();
       initializeItemEditor();
       initializeDependencyManager();
       initializeItemCreator();
-      initializeFilterModal();
+      initializeFilterModal(takersCache); // Pass TakersCache instance
       frontendLog(`init() - Initialized modals: ${Date.now() - modalStartTime}ms`);
 
       // Initialize active filters from config

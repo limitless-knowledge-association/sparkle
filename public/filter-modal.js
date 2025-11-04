@@ -5,15 +5,88 @@
  * Provides a modal interface for configuring list view filters
  */
 
-import { apiCall, frontendLog } from './sparkle-common.js';
+import { frontendLog } from './sparkle-common.js';
 
 let filterModalInstance = null;
+let takersCache = null; // Reference to TakersCache
+let takersCacheUnsubscribe = null; // Unsubscribe function for cache updates
 
 /**
- * Initialize the filter modal component
+ * Initialize the filter modal component with TakersCache
+ * @param {TakersCache} cache - TakersCache instance to observe
  */
-export function initializeFilterModal() {
-  frontendLog('filter-modal: Initialized');
+export function initializeFilterModal(cache) {
+  takersCache = cache;
+
+  // Subscribe to takers cache updates
+  if (takersCache) {
+    takersCacheUnsubscribe = takersCache.onChange(() => {
+      handleTakersCacheUpdate();
+    });
+  }
+
+  frontendLog('filter-modal: Initialized with TakersCache');
+}
+
+/**
+ * Handle TakersCache update - refresh the taken filter dropdown if modal is open
+ */
+function handleTakersCacheUpdate() {
+  if (!filterModalInstance || !filterModalInstance.isOpen) {
+    // Modal not open, nothing to update
+    return;
+  }
+
+  frontendLog('filter-modal: TakersCache updated, refreshing takers dropdown');
+
+  // Get the current selected value before updating
+  const takenSelect = document.getElementById('filterModal_takenFilter');
+  if (!takenSelect) {
+    return;
+  }
+
+  const currentValue = takenSelect.value;
+
+  // Rebuild the dropdown options
+  const takers = takersCache ? takersCache.getTakers() : [];
+  const newOptions = buildTakenFilterOptions(takers);
+
+  // Replace the options
+  takenSelect.innerHTML = newOptions;
+
+  // Restore the selected value if it still exists
+  if (currentValue) {
+    const optionExists = Array.from(takenSelect.options).some(opt => opt.value === currentValue);
+    if (optionExists) {
+      takenSelect.value = currentValue;
+    }
+  }
+}
+
+/**
+ * Build the HTML options for the taken filter dropdown
+ * @param {Array<Object>} takers - List of takers [{name, email, hash}]
+ * @returns {string} HTML options string
+ */
+function buildTakenFilterOptions(takers) {
+  let options = `
+    <option value="all">All items (default)</option>
+    <option value="taken">Taken by anyone</option>
+    <option value="not-taken">Not taken</option>
+  `;
+
+  // Add options for each known taker
+  if (takers.length > 0) {
+    options += '<option disabled>──────────</option>';
+    for (const taker of takers) {
+      const escapedName = escapeHtml(taker.name);
+      const escapedEmail = escapeHtml(taker.email);
+      // Use email as the value since that's what the filter logic expects
+      options += `<option value="${escapedEmail}">${escapedName}</option>`;
+    }
+  }
+
+  return options;
 }
 
 /**
@@ -22,17 +95,22 @@ export function initializeFilterModal() {
  * @param {Function} onApply - Callback when filters are applied
  */
 export function openFilterModal(currentFilters, onApply) {
-  if (filterModalInstance) {
+  if (filterModalInstance && filterModalInstance.isOpen) {
     frontendLog('filter-modal: Modal already open');
     return;
   }
 
   filterModalInstance = {
     currentFilters: { ...currentFilters },
-    onApply: onApply
+    onApply: onApply,
+    isOpen: true
   };
 
-  createFilterModalDOM();
+  // Get list of known takers from the cache
+  const takers = takersCache ? takersCache.getTakers() : [];
+  frontendLog(`filter-modal: Opening with ${takers.length} takers from cache`);
+
+  createFilterModalDOM(takers);
   document.getElementById('filterModal').classList.add('show');
 }
 
@@ -45,6 +123,9 @@ function closeFilterModal() {
     modal.classList.remove('show');
     setTimeout(() => {
       modal.remove();
+      if (filterModalInstance) {
+        filterModalInstance.isOpen = false;
+      }
       filterModalInstance = null;
     }, 300);
   }
@@ -71,9 +152,23 @@ function applyFilters() {
 window.applyFilters = applyFilters;
 
 /**
- * Create the filter modal DOM
+ * Escape HTML to prevent XSS
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped HTML
  */
-function createFilterModalDOM() {
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Create the filter modal DOM
+ * @param {Array<Object>} takers - List of known takers [{name, email, hash}]
+ */
+function createFilterModalDOM(takers = []) {
+  const takenFilterOptions = buildTakenFilterOptions(takers);
+
   const modalHTML = `
     <div id="filterModal" class="filter-modal">
       <div class="filter-modal-overlay" onclick="closeFilterModal()"></div>
@@ -117,9 +212,7 @@ function createFilterModalDOM() {
           <div class="filter-modal-group">
             <label for="filterModal_takenFilter">Taken By</label>
             <select id="filterModal_takenFilter">
-              <option value="all">All items (default)</option>
-              <option value="taken">Taken by anyone</option>
-              <option value="not-taken">Not taken</option>
+              ${takenFilterOptions}
             </select>
             <div class="filter-modal-help">Filter by who has taken responsibility</div>
           </div>

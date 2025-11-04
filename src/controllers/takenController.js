@@ -7,6 +7,7 @@
 import { getItemDetails, createPersonData } from '../utils.js';
 import { hashObject } from '../nameUtils.js';
 import * as takenEvent from '../events/taken.js';
+import { addTakerToAggregate } from '../takersAggregate.js';
 
 /**
  * Take responsibility for an item (only one person can take it at a time)
@@ -33,10 +34,18 @@ export async function takeItem(baseDirectory, itemId, aggregateModel = null, git
   // Create taken file using event handler - this automatically supersedes any previous taker
   const filename = await takenEvent.createTakeFile(baseDirectory, itemId, person);
 
-  // Update aggregate if model provided
+  // Update item aggregate if model provided
   if (aggregateModel) {
     const eventData = { person, hash };
     await aggregateModel.updateAggregateForEvent(filename, eventData);
+  }
+
+  // Update takers aggregate (add this person to the set of known takers)
+  try {
+    await addTakerToAggregate(baseDirectory, person);
+  } catch (error) {
+    console.error('Failed to update takers aggregate:', error.message);
+    // Don't fail the take operation if aggregate update fails
   }
 
   // Notify git operations if provided
