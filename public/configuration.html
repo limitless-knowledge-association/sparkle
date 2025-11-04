@@ -128,7 +128,6 @@
           name="git_branch"
           value="sparkle"
           required
-          pattern="[-a-zA-Z0-9_/]+"
         />
         <div class="help-text">Name of the dedicated git branch for Sparkle data</div>
       </div>
@@ -236,6 +235,20 @@
       });
     });
 
+    // Add blur validation for git_branch
+    const gitBranchInput = document.getElementById('git_branch');
+    gitBranchInput.addEventListener('blur', () => {
+      const value = gitBranchInput.value.trim();
+      const branchNameRegex = /^[a-zA-Z0-9_\-\/]+$/;
+
+      if (value && !branchNameRegex.test(value)) {
+        gitBranchInput.setCustomValidity('Branch name can only contain letters, numbers, dashes, underscores, and slashes');
+        gitBranchInput.reportValidity();
+      } else {
+        gitBranchInput.setCustomValidity('');
+      }
+    });
+
     // Add ESC key handler to close window after successful configuration
     let configurationComplete = false;
     document.addEventListener('keydown', (e) => {
@@ -259,6 +272,13 @@
       // Validation
       if (!data.git_branch || !data.directory || !data.worktree_path) {
         showMessage('Please fill in all required fields', 'error');
+        return;
+      }
+
+      // Validate git branch name - allow alphanumeric, dash, underscore, slash
+      const branchNameRegex = /^[a-zA-Z0-9_\-\/]+$/;
+      if (!branchNameRegex.test(data.git_branch)) {
+        showMessage('Branch name can only contain letters, numbers, dashes, underscores, and slashes', 'error');
         return;
       }
 
