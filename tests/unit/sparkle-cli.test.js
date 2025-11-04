@@ -539,15 +539,16 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item1 } = await setupTestData('alter-invalid-status');
 
       try {
-        // Note: Status validation only occurs if statuses.json exists
-        // By default, any status is allowed (for backward compatibility)
-        // This test verifies the alter command works with custom statuses
-        // For a proper validation test, we'd need to first call updateStatuses API
-        // For now, just verify that a status change works
-        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} status invalid_status ${dataDir}`);
-        expect(stdout).toContain('Status changed to invalid_status');
+        // The two built-in statuses should always work
+        await execAsync(`node ${CLI_PATH} alter ${item1} status incomplete ${dataDir}`);
+        await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);
 
-        // TODO: Add test that creates statuses.json first, then validates
+        // Invalid status should fail (daemon validates)
+        await expect(
+          execAsync(`node ${CLI_PATH} alter ${item1} status invalid_status ${dataDir}`)
+        ).rejects.toMatchObject({
+          code: 1
+        });
       } finally {
         await cleanupEnvironment(env.testDir);
       }

@@ -140,8 +140,12 @@ export async function loadAllowedStatuses(baseDirectory) {
 export async function validateStatus(baseDirectory, status) {
   const allowedStatuses = await loadAllowedStatuses(baseDirectory);
 
-  // If no statuses.json file exists, no validation is performed
+  // If no statuses.json file exists, only allow the two built-in statuses
   if (allowedStatuses === null) {
+    const builtInStatuses = new Set(['completed', 'incomplete']);
+    if (!builtInStatuses.has(status)) {
+      throw new Error(`Invalid status "${status}". Must be one of: completed, incomplete`);
+    }
     return;
   }
 
