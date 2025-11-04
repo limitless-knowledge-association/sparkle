@@ -250,8 +250,12 @@
     });
 
     // Add Enter key logging for all inputs
-    document.querySelectorAll('input[type="text"]').forEach(input => {
+    const textInputs = document.querySelectorAll('input[type="text"]');
+    console.log('[Config] Found', textInputs.length, 'text inputs');
+    textInputs.forEach(input => {
+      console.log('[Config] Adding Enter key listener to:', input.id);
       input.addEventListener('keydown', (e) => {
+        console.log('[Config] Keydown event in', input.id, '- key:', e.key);
         if (e.key === 'Enter') {
           console.log('[Config] Enter key pressed in input:', input.id);
           console.log('[Config] Form validity:', form.checkValidity());
