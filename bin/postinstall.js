@@ -297,7 +297,7 @@ async function main() {
       log('Fresh install detected, launching configuration...');
       console.log('Sparkle: Opening browser for first-time configuration...');
 
-      const child = spawn(process.execPath, [join(__dirname, 'sparkle_agent.js'), '--postinstall'], {
+      const child = spawn(process.execPath, [join(__dirname, 'sparkle_installer.js')], {
         detached: true,
         stdio: 'ignore'
       });
