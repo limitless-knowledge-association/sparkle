@@ -76,7 +76,7 @@ export async function launchDaemon(gitRoot, dataDir) {
   const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
-    stdio: ['ignore', 'inherit', 'inherit'] // Inherit stderr for debugging, ignore stdin/stdout
+    stdio: 'ignore' // Daemon manages its own logging to daemon.log
   });
   console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
