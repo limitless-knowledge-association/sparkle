@@ -58,6 +58,14 @@ export async function alterCommand(itemId, field, value, location) {
   // Import Sparkle class
   const { Sparkle } = await import('../../src/sparkle-class.js');
 
+  // Suppress console.log output to stdout (redirect to stderr for non-JSON mode)
+  const originalConsoleLog = console.log;
+  if (!useJson) {
+    console.log = (...args) => console.error(...args);
+  } else {
+    console.log = () => {}; // Suppress completely in JSON mode
+  }
+
   // Create Sparkle instance and start it
   const sparkle = new Sparkle(dataDir);
   await sparkle.start();
@@ -122,6 +130,9 @@ export async function alterCommand(itemId, field, value, location) {
     // Force immediate push
     await sparkle.gitOps.forcePushNow();
 
+    // Restore console.log before output
+    console.log = originalConsoleLog;
+
     // Output
     if (useJson) {
       console.log(JSON.stringify({
@@ -138,6 +149,7 @@ export async function alterCommand(itemId, field, value, location) {
     // Stop sparkle instance
     await sparkle.stop();
   } catch (error) {
+    console.log = originalConsoleLog;
     await sparkle.stop();
 
     // Output error
