@@ -128,7 +128,7 @@
           name="git_branch"
           value="sparkle"
           required
-          pattern="[a-zA-Z0-9_\-/]+"
+          pattern="[a-zA-Z0-9_/-]+"
         />
         <div class="help-text">Name of the dedicated git branch for Sparkle data</div>
       </div>
@@ -197,6 +197,8 @@
         if (data.isRegularDependency && !data.isDevDependency) {
           const packageSpec = data.packageSpec || 'sparkle-<version>.tgz';
           showMessage(`⚠️ Sparkle is installed as a regular dependency. To fix this, close this window and run:\n\nnpm uninstall sparkle\nnpm install --save-dev ${packageSpec}\n\nThen complete the configuration when the window reopens.`, 'info');
+          // Enable ESC to close window when warning is shown
+          configurationComplete = true;
         }
       } catch (error) {
         // Silently ignore if check fails
