@@ -1283,6 +1283,9 @@ async function handleRequest(req, res) {
       console.log(`API: takeItem called for item ${body.itemId}`);
       await sparkle.takeItem(body.itemId);
 
+      // Broadcast to all clients that takers list may have been updated
+      broadcastSSE('takersUpdated', {});
+
       // Send response immediately (git commit is automatically scheduled)
       sendJSON(res, 200, { success: true });
       return;
@@ -1399,6 +1402,12 @@ async function handleRequest(req, res) {
     if (path === '/api/allowedStatuses') {
       const statuses = await sparkle.getAllowedStatuses();
       sendJSON(res, 200, { statuses });
+      return;
+    }
+
+    if (path === '/api/getTakers') {
+      const takers = await sparkle.getTakers();
+      sendJSON(res, 200, { takers });
       return;
     }
 

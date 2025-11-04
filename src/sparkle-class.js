@@ -30,8 +30,9 @@ import * as takenController from './controllers/takenController.js';
 // Configuration Manager
 import * as configManager from './configManager.js';
 
-// Status Aggregate
+// System Aggregates
 import { rebuildStatusesAggregate } from './statusesAggregate.js';
+import { rebuildTakersAggregate } from './takersAggregate.js';
 
 /**
  * Sparkle API Class
@@ -60,8 +61,9 @@ export class Sparkle {
     // Initialize aggregate model
     await this.aggregateModel.start();
 
-    // Rebuild statuses aggregate on startup
+    // Rebuild system aggregates on startup
     await rebuildStatusesAggregate(this.baseDirectory);
+    await rebuildTakersAggregate(this.baseDirectory);
 
     // Wire up git pull callback to invalidate aggregates
     this.gitOps.onFilesPulled(async (filenames) => {

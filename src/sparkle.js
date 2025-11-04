@@ -9,7 +9,7 @@ import { join } from 'path';
 import { readMatchingFiles, readJsonFile, getItemFiles } from './fileUtils.js';
 import { buildItemState, buildAllActiveDependencies } from './stateBuilder.js';
 import { getItemsDependingOn, wouldCreateCycle } from './dependencyGraph.js';
-import { getItemDetails as utilsGetItemDetails, getAllItemFiles as utilsGetAllItemFiles, getAllowedStatuses as utilsGetAllowedStatuses } from './utils.js';
+import { getItemDetails as utilsGetItemDetails, getAllItemFiles as utilsGetAllItemFiles, getAllowedStatuses as utilsGetAllowedStatuses, getTakers as utilsGetTakers } from './utils.js';
 
 // Aggregate Manager (import for convenience, but injected via setAggregateManager)
 import * as aggregateManager from './aggregateManager.js';
@@ -96,6 +96,14 @@ export async function getAllowedStatuses() {
  */
 export async function updateStatuses(statuses) {
   await statusController.updateStatusConfiguration(baseDirectory, statuses);
+}
+
+/**
+ * Get all known takers
+ * @returns {Promise<Array<Object>>} Array of takers [{name, email, hash}]
+ */
+export async function getTakers() {
+  return await utilsGetTakers(baseDirectory);
 }
 
 /**
