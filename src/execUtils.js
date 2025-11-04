@@ -10,6 +10,9 @@ import { promisify } from 'util';
 
 const execNative = promisify(exec);
 
+// Check if verbose logging is enabled (default: false for cleaner output)
+const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
+
 /**
  * Get default exec options with OS-specific handling
  * @param {Object} userOptions - User-provided options to merge
@@ -40,7 +43,7 @@ export async function execAsync(command, options = {}) {
   // Truncate long commands for logging
   const shortCommand = command.length > 80 ? command.slice(0, 77) + '...' : command;
 
-  console.log(`[execUtils] ${shortCwd}$ ${shortCommand}`);
+  if (VERBOSE) console.log(`[execUtils] ${shortCwd}$ ${shortCommand}`);
 
   try {
     return await execNative(command, finalOptions);
@@ -68,7 +71,7 @@ export function spawnProcess(command, args = [], options = {}) {
   const fullCommand = `${command} ${argsStr}`;
   const shortCommand = fullCommand.length > 80 ? fullCommand.slice(0, 77) + '...' : fullCommand;
 
-  console.log(`[execUtils] spawn: ${shortCwd}$ ${shortCommand}`);
+  if (VERBOSE) console.log(`[execUtils] spawn: ${shortCwd}$ ${shortCommand}`);
 
   return spawn(command, args, finalOptions);
 }
@@ -88,7 +91,7 @@ export function execSyncWithOptions(command, options = {}) {
   const shortCwd = cwd.length > 40 ? '...' + cwd.slice(-37) : cwd;
   const shortCommand = command.length > 80 ? command.slice(0, 77) + '...' : command;
 
-  console.log(`[execUtils] sync: ${shortCwd}$ ${shortCommand}`);
+  if (VERBOSE) console.log(`[execUtils] sync: ${shortCwd}$ ${shortCommand}`);
 
   return execSync(command, finalOptions);
 }

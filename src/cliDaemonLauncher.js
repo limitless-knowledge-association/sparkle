@@ -16,6 +16,9 @@ import { makeApiRequest } from './daemonClient.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Check if verbose logging is enabled (default: false for cleaner output)
+const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
+
 /**
  * Check if a daemon is already running by reading last_port.data and pinging it
  * @param {string} dataDir - Path to sparkle data directory
@@ -54,7 +57,7 @@ export async function getRunningDaemonPort(dataDir) {
  */
 export async function launchDaemon(gitRoot, dataDir) {
   const launchStart = Date.now();
-  console.error(`[CLI] Launching daemon from: ${gitRoot}`);
+  if (VERBOSE) console.error(`[CLI] Launching daemon from: ${gitRoot}`);
 
   // Use the agent from the installed Sparkle package in the target repo
   // not the agent from the current working directory
@@ -64,21 +67,21 @@ export async function launchDaemon(gitRoot, dataDir) {
     throw new Error(`Daemon agent not found at: ${agentPath}`);
   }
 
-  console.error(`[CLI] Agent path: ${agentPath}`);
-  console.error(`[CLI] Spawning daemon process...`);
+  if (VERBOSE) console.error(`[CLI] Agent path: ${agentPath}`);
+  if (VERBOSE) console.error(`[CLI] Spawning daemon process...`);
 
   // Start daemon in background with --keep-alive=api flag (5-min timeout)
   // spawnProcess from execUtils automatically hides windows on Windows
   const spawnStart = Date.now();
   const args = ['--keep-alive=api'];
-  console.error(`[CLI] Spawning daemon with args:`, args);
+  if (VERBOSE) console.error(`[CLI] Spawning daemon with args:`, args);
 
   const daemon = spawnProcess(process.execPath, [agentPath, ...args], {
     cwd: gitRoot,
     detached: true,
     stdio: 'ignore' // Daemon manages its own logging to daemon.log
   });
-  console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
+  if (VERBOSE) console.error(`[CLI] Daemon spawned in ${Date.now() - spawnStart}ms (PID: ${daemon.pid})`);
 
   // Detach the daemon so it continues after CLI exits
   daemon.unref();
@@ -88,7 +91,7 @@ export async function launchDaemon(gitRoot, dataDir) {
   const port = await waitForDaemonStart(dataDir, 30000);
 
   const totalTime = Date.now() - launchStart;
-  console.error(`[CLI] Total daemon launch time: ${totalTime}ms`);
+  if (VERBOSE) console.error(`[CLI] Total daemon launch time: ${totalTime}ms`);
   return port;
 }
 
@@ -105,15 +108,15 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
   let portFileFoundTime = null;
   let checkCount = 0;
 
-  console.error(`[CLI] Waiting for daemon to start (timeout: ${timeout}ms)...`);
-  console.error(`[CLI] Port file: ${portFile}`);
+  if (VERBOSE) console.error(`[CLI] Waiting for daemon to start (timeout: ${timeout}ms)...`);
+  if (VERBOSE) console.error(`[CLI] Port file: ${portFile}`);
 
   while (Date.now() - startTime < timeout) {
     checkCount++;
     const elapsed = Date.now() - startTime;
 
     // Log every 5 seconds
-    if (Date.now() - lastLogTime > 5000) {
+    if (VERBOSE && Date.now() - lastLogTime > 5000) {
       console.error(`[CLI] Still waiting... ${elapsed}ms elapsed, checked ${checkCount} times`);
       lastLogTime = Date.now();
     }
@@ -121,7 +124,7 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
     if (existsSync(portFile)) {
       if (!portFileFoundTime) {
         portFileFoundTime = Date.now();
-        console.error(`[CLI] Port file appeared after ${portFileFoundTime - startTime}ms`);
+        if (VERBOSE) console.error(`[CLI] Port file appeared after ${portFileFoundTime - startTime}ms`);
       }
 
       try {
@@ -132,11 +135,11 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
         try {
           await makeApiRequest(port, '/api/ping');
           const totalTime = Date.now() - startTime;
-          console.error(`[CLI] Daemon ready after ${totalTime}ms (${checkCount} checks)`);
+          if (VERBOSE) console.error(`[CLI] Daemon ready after ${totalTime}ms (${checkCount} checks)`);
           return port;
         } catch (error) {
           // Wait a bit more for daemon to be ready
-          if (Date.now() - portFileFoundTime > 5000) {
+          if (VERBOSE && Date.now() - portFileFoundTime > 5000) {
             console.error(`[CLI] Port file exists but daemon not responding after ${Date.now() - portFileFoundTime}ms`);
           }
         }
@@ -169,12 +172,12 @@ export async function ensureDaemon(dataDir) {
   // First check if daemon is already running
   const existingPort = await getRunningDaemonPort(dataDir);
   if (existingPort) {
-    console.error(`[CLI] Using existing daemon on port ${existingPort}`);
+    if (VERBOSE) console.error(`[CLI] Using existing daemon on port ${existingPort}`);
     return existingPort;
   }
 
   // Need to launch a new daemon
-  console.error(`[CLI] Starting daemon in API mode...`);
+  if (VERBOSE) console.error(`[CLI] Starting daemon in API mode...`);
 
   // Derive git root from dataDir
   // dataDir is typically: /path/to/repo/.sparkle-worktree/sparkle-data
@@ -184,6 +187,6 @@ export async function ensureDaemon(dataDir) {
   const gitRoot = dirname(worktreePath);  // Remove .sparkle-worktree
 
   const port = await launchDaemon(gitRoot, dataDir);
-  console.error(`[CLI] Daemon started on port ${port}`);
+  if (VERBOSE) console.error(`[CLI] Daemon started on port ${port}`);
   return port;
 }

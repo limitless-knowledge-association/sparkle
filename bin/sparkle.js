@@ -28,6 +28,9 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getGitRoot } from '../src/gitBranchOps.js';
+
+// Check if verbose logging is enabled (default: false for cleaner output)
+const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
 import { Sparkle } from '../src/sparkle-class.js';
 import { spawnProcess } from '../src/execUtils.js';
 import { ensureDaemon } from '../src/cliDaemonLauncher.js';
@@ -69,7 +72,7 @@ function showHelp() {
  */
 async function getDataDirectory(locationArg) {
   const startTime = Date.now();
-  console.error(`[CLI] Determining data directory...`);
+  if (VERBOSE) console.error(`[CLI] Determining data directory...`);
 
   // If location is explicitly provided, use it directly
   if (locationArg) {
@@ -77,7 +80,7 @@ async function getDataDirectory(locationArg) {
       throw new Error(`Data directory not found: ${locationArg}`);
     }
     const duration = Date.now() - startTime;
-    console.error(`[CLI] Using explicit location: ${locationArg} (${duration}ms)`);
+    if (VERBOSE) console.error(`[CLI] Using explicit location: ${locationArg} (${duration}ms)`);
     return locationArg;
   }
 
@@ -105,7 +108,7 @@ async function getDataDirectory(locationArg) {
   }
 
   const duration = Date.now() - startTime;
-  console.error(`[CLI] Using config location: ${worktreeDataPath} (${duration}ms)`);
+  if (VERBOSE) console.error(`[CLI] Using config location: ${worktreeDataPath} (${duration}ms)`);
   return worktreeDataPath;
 }
 
