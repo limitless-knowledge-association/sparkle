@@ -552,12 +552,12 @@ class EntriesComponent extends Component {
         </div>
       </div>`;
 
-    // Existing entries
+    // Existing entries (reversed to show newest first)
     if (data.entries && data.entries.length > 0) {
       html += '<div class="section mt-md">';
       html += '<h3 class="section-header">Previous Entries</h3>';
       html += '<ul class="item-list">';
-      for (const entry of data.entries) {
+      for (const entry of [...data.entries].reverse()) {
         html += `<li class="item-list-item">`;
         html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
         html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
@@ -641,7 +641,7 @@ class EntriesComponent extends Component {
       let html = '<div class="section mt-md">';
       html += '<h3 class="section-header">Previous Entries</h3>';
       html += '<ul class="item-list">';
-      for (const entry of data.entries) {
+      for (const entry of [...data.entries].reverse()) {
         html += `<li class="item-list-item">`;
         html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
         html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
