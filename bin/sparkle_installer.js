@@ -175,6 +175,31 @@ async function updatePackageJson(sparkleConfig) {
 }
 
 /**
+ * Check if Sparkle is installed as a regular dependency (should be devDependency)
+ */
+async function checkDependencyType() {
+  try {
+    const packageJsonPath = join(gitRoot, 'package.json');
+    const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
+
+    // Check if sparkle is in dependencies (not recommended)
+    const inDependencies = packageJson.dependencies && packageJson.dependencies.sparkle;
+    const inDevDependencies = packageJson.devDependencies && packageJson.devDependencies.sparkle;
+
+    // Get the package specifier (e.g., "file:sparkle-1.0.299.tgz")
+    const packageSpec = inDependencies || inDevDependencies || null;
+
+    return {
+      isRegularDependency: !!inDependencies,
+      isDevDependency: !!inDevDependencies,
+      packageSpec: packageSpec
+    };
+  } catch (error) {
+    return { isRegularDependency: false, isDevDependency: false, packageSpec: null };
+  }
+}
+
+/**
  * Handle HTTP requests
  */
 async function handleRequest(req, res) {
@@ -189,6 +214,13 @@ async function handleRequest(req, res) {
       'Access-Control-Allow-Headers': 'Content-Type'
     });
     res.end();
+    return;
+  }
+
+  // Check dependency type endpoint (for UI warning)
+  if (path === '/api/checkDependency') {
+    const depType = await checkDependencyType();
+    sendJSON(res, 200, depType);
     return;
   }
 
