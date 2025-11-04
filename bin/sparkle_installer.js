@@ -25,6 +25,7 @@ import {
   checkOriginRemote
 } from '../src/gitBranchOps.js';
 import { openBrowser } from '../src/browserLauncher.js';
+import { SPARKLE_VERSION } from '../src/version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -117,10 +118,17 @@ async function sendStaticFile(res, requestPath) {
 
     // Read and send the file
     const content = await readFile(filePath);
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': contentType,
       'Access-Control-Allow-Origin': '*'
-    });
+    };
+
+    // Add version header for HTML files
+    if (contentType === 'text/html') {
+      headers['X-Sparkle-Version'] = SPARKLE_VERSION;
+    }
+
+    res.writeHead(200, headers);
     res.end(content);
   } catch (error) {
     // File not found or read error
@@ -341,6 +349,7 @@ async function main() {
     const port = address.port;
 
     console.log(`Sparkle Installer listening on http://localhost:${port}`);
+    console.log(`Sparkle version: ${SPARKLE_VERSION}`);
     console.log('Opening browser for configuration...');
 
     // Open browser to configuration page

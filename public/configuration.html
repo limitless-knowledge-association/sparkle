@@ -128,7 +128,7 @@
           name="git_branch"
           value="sparkle"
           required
-          pattern="[a-zA-Z0-9_/-]+"
+          pattern="[-a-zA-Z0-9_/]+"
         />
         <div class="help-text">Name of the dedicated git branch for Sparkle data</div>
       </div>
@@ -167,6 +167,24 @@
     const form = document.getElementById('configForm');
     const messageDiv = document.getElementById('message');
     const loadingDiv = document.getElementById('loading');
+
+    // Get and display Sparkle version from response headers
+    const sparkleVersion = document.currentScript.ownerDocument.defaultView.performance
+      .getEntriesByType('navigation')[0]?.serverTiming?.[0]?.name ||
+      new URLSearchParams(window.location.search).get('version') || 'unknown';
+
+    // Try to get version from a simple fetch to current page
+    (async () => {
+      try {
+        const response = await fetch(window.location.href, { method: 'HEAD' });
+        const version = response.headers.get('X-Sparkle-Version') || 'unknown';
+        console.log(`Sparkle Configuration - Version: ${version}`);
+        // Update subtitle to show version
+        document.querySelector('.subtitle').textContent = `Set up Sparkle for this repository (v${version})`;
+      } catch (error) {
+        console.log('Sparkle Configuration - Version: unknown');
+      }
+    })();
 
     function showMessage(text, type) {
       messageDiv.textContent = text;
