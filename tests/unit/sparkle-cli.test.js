@@ -152,7 +152,7 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item1 } = await setupTestData('cat-basic');
 
       try {
-        const { stdout, stderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        const { stdout, stderr } = await execAsync(`SPARKLE_CLIENT_VERBOSE=true node ${CLI_PATH} cat ${item1} ${dataDir}`);
 
         expect(stdout).toContain(`Item: ${item1}`);
         expect(stdout).toContain('Test item 1');
@@ -231,8 +231,8 @@ describe('Sparkle CLI', () => {
         expect(stdout).toContain(item2);
         expect(stdout).toContain('Test item 2');
 
-        // Verify dependents section
-        expect(stdout).toContain('DEPENDENTS');
+        // Verify providers section (renamed from dependents for clarity)
+        expect(stdout).toContain('PROVIDERS');
 
         // Verify timing logs
         expect(stderr).toContain('[CLI]');
@@ -249,16 +249,16 @@ describe('Sparkle CLI', () => {
         // Inspect item2, which is depended on by item3
         const { stdout } = await execAsync(`node ${CLI_PATH} inspect ${item2} ${dataDir}`);
 
-        expect(stdout).toContain('DEPENDENTS');
+        expect(stdout).toContain('PROVIDERS');
 
-        // Check if there are dependents or if it says "No dependents"
-        if (stdout.includes('No dependents')) {
-          // This is expected - dependents may not be calculated yet
-          console.log('⊘ Skipping dependents check (aggregate may not have reverse dependencies yet)');
+        // Check if there are providers or if it says "No providers"
+        if (stdout.includes('No providers')) {
+          // This is expected - providers may not be calculated yet
+          console.log('⊘ Skipping providers check (aggregate may not have reverse dependencies yet)');
           return;
         }
 
-        expect(stdout).toContain('DEPENDENT');
+        expect(stdout).toContain('PROVIDER');
         expect(stdout).toContain(item3);
         expect(stdout).toContain('Test item 3');
       } finally {

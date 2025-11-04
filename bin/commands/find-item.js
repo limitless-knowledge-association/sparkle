@@ -29,18 +29,9 @@ export async function findItemCommand(search, location) {
   const dataDir = await getDataDirectory(location);
   const port = await ensureDaemon(dataDir);
 
-  // Get all items via daemon API
-  const items = await makeApiRequest(port, '/api/getAllItems', 'GET');
-
-  // Normalize search string for case-insensitive matching
-  const searchLower = search.toLowerCase();
-
-  // Filter items: match itemId or tagline (case-insensitive substring)
-  const matches = items.filter(item => {
-    const itemIdMatch = item.itemId && item.itemId.includes(searchLower);
-    const taglineMatch = item.tagline && item.tagline.toLowerCase().includes(searchLower);
-    return itemIdMatch || taglineMatch;
-  });
+  // Get filtered items via daemon API (search is done in daemon)
+  const response = await makeApiRequest(port, `/api/allItems?search=${encodeURIComponent(search)}`, 'GET');
+  const matches = response.items;
 
   // JSON output
   if (useJson) {
