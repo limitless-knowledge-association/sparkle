@@ -182,7 +182,7 @@ function startNoClientTimeout() {
     console.log(`⏰ Restarting no-client timeout (${timeoutSeconds}s, old: ${noClientTimeoutId})`);
     clearTimeout(noClientTimeoutId);
   } else {
-    console.log(`⏰ Starting no-client timeout (${timeoutSeconds} seconds${keepAliveMode === 'api' ? ', API mode' : ''})`);
+    console.log(`⏰ Starting no-client timeout (${timeoutSeconds} seconds)`);
   }
 
   noClientTimeoutId = setTimeout(() => {
@@ -194,7 +194,7 @@ function startNoClientTimeout() {
     // Set shutdown flag - this prevents any further SSE broadcasts
     shuttingDown = true;
 
-    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: `${timeoutSeconds}s`, sseClients: sseClients.length, keepAliveMode });
+    if (logger) logger.info('Daemon exiting', { reason: 'no_client_timeout', duration: `${timeoutSeconds}s`, sseClients: sseClients.length });
 
     // Clean up intervals
     if (fetchIntervalId) {
