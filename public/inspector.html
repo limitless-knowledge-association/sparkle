@@ -103,25 +103,10 @@
       color: var(--text-primary);
     }
 
+    /* Status badge styles moved to sparkle-base.css (using .status-badge class) */
+    /* Keep node-status as alias with left margin for spacing */
     .node-status {
       margin-left: 8px;
-      margin-right: 8px;
-      font-size: 12px;
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-weight: 500;
-      font-style: normal;
-      display: inline-block;
-    }
-
-    .node-status.completed {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .node-status.incomplete {
-      background: #fef3c7;
-      color: #92400e;
     }
 
     .section-header {
@@ -371,7 +356,7 @@
         if (anchorNode) {
           const anchorDetails = await apiCall('/api/getItemDetails', { itemId: anchorItemId });
           const statusClass = anchorDetails.status === 'completed' ? 'completed' : 'incomplete';
-          const statusBadge = `<span class="node-status ${statusClass}">${anchorDetails.status}</span>`;
+          const statusBadge = `<span class="status-badge node-status ${statusClass}">${anchorDetails.status}</span>`;
           html += `
             <div class="tree-node anchor-node" style="padding-left: 0px;">
               <div class="node-content" onclick="handleItemClick('${anchorItemId}')">
@@ -407,7 +392,7 @@
       const indentPx = depth * 24; // 24px per level
 
       const statusClass = itemDetails.status === 'completed' ? 'completed' : 'incomplete';
-      const statusBadge = `<span class="node-status ${statusClass}">${itemDetails.status}</span>`;
+      const statusBadge = `<span class="status-badge node-status ${statusClass}">${itemDetails.status}</span>`;
 
       return `
         <div class="tree-node" style="padding-left: ${indentPx}px;">
