@@ -19,10 +19,7 @@
     "release:major": "npm version major && npm run pack",
     "release:rebuild": "npm run pack",
     "pack": "node bin/prepare-distribution.js",
-    "postinstall": "node bin/postinstall.js",
-    "sparkle": "sparkle-client",
-    "sparkle-daemon": "sparkle-daemon",
-    "sparkle-halt": "sparkle-halt"
+    "postinstall": "node bin/postinstall.js"
   },
   "keywords": [
     "tracking",
