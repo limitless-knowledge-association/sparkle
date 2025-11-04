@@ -26,3 +26,5 @@
 10. Always make notes to a file under .notes/ to track actions and changing todos.
 
 11. Don't do `git add -A` because it picks up junk. Add files intentionally and use `git add -u` freely.
+
+12. Sparkle must install and run on Macos, Linux, and Windows
