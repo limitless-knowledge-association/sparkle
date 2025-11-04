@@ -265,9 +265,14 @@
       });
     });
 
+    // Add global Enter key handler to submit form from anywhere
     // Add ESC key handler to close window after successful configuration
     let configurationComplete = false;
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !configurationComplete) {
+        console.log('[Config] Global Enter key pressed - submitting form');
+        form.requestSubmit();
+      }
       if (e.key === 'Escape' && configurationComplete) {
         window.close();
       }
