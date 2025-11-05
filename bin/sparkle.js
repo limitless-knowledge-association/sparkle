@@ -10,440 +10,55 @@
  *   npx sparkle cat <itemId>        Display item details
  *   npx sparkle inspect <itemId>    Display item with full dependency chains
  *   npx sparkle browser             Open Sparkle in browser (launches daemon if needed)
+ *   npx sparkle find-item <search>  Search items by ID or tagline
+ *   npx sparkle create-item "<tagline>"  Create new item and return ID
+ *   npx sparkle add-entry <itemId>  Add entry (reads from stdin)
+ *   npx sparkle alter <itemId> <field> <value>  Alter item field
  *
- * Location (optional for cat/inspect):
- *   Add [location] as last argument to specify data directory
+ * Location (optional for most commands):
+ *   Add [location] before --json flag to specify data directory
  *   - If not specified: Uses sparkle_config from package.json
  *   - If specified: Direct path to sparkle data directory
  *
  * Examples:
  *   npx sparkle cat 44332211
- *   npx sparkle inspect 44332211
- *   npx sparkle cat 44332211 /path/to/test/sparkle-data
- *   npx sparkle browser
+ *   npx sparkle find-item "test"
+ *   npx sparkle create-item "Fix bug in parser"
+ *   echo "Updated parser logic" | npx sparkle add-entry 44332211
+ *   npx sparkle alter 44332211 status completed
+ *   npx sparkle alter 44332211 responsibility yes
  */
 
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { existsSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { getGitRoot } from '../src/gitBranchOps.js';
-
-// Check if verbose logging is enabled (default: false for cleaner output)
-const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
-import { Sparkle } from '../src/sparkle-class.js';
-import { spawnProcess } from '../src/execUtils.js';
-import { ensureDaemon } from '../src/cliDaemonLauncher.js';
-import { makeApiRequest } from '../src/daemonClient.js';
-import { openBrowser } from '../src/browserLauncher.js';
+import { showHelp } from './lib/helpers.js';
+import { catCommand } from './commands/cat.js';
+import { inspectCommand } from './commands/inspect.js';
+import { browserCommand } from './commands/browser.js';
+import { findItemCommand } from './commands/find-item.js';
+import { createItemCommand } from './commands/create-item.js';
+import { addEntryCommand } from './commands/add-entry.js';
+import { alterCommand } from './commands/alter.js';
 
 const command = process.argv[2];
 const arg1 = process.argv[3];
 const arg2 = process.argv[4];
+const arg3 = process.argv[5];
+const arg4 = process.argv[6];
 
 /**
- * Show usage help
+ * Get location argument, filtering out --json flag
+ * For commands with format: cmd arg1 [location] [--json]
  */
-function showHelp() {
-  console.log('');
-  console.log('Sparkle CLI - Unified command-line interface');
-  console.log('');
-  console.log('Usage:');
-  console.log('  npx sparkle                     Show this help');
-  console.log('  npx sparkle cat <itemId>        Display item details');
-  console.log('  npx sparkle inspect <itemId>    Display item with full dependency chains');
-  console.log('  npx sparkle browser             Open Sparkle in browser');
-  console.log('');
-  console.log('Location (optional for cat/inspect):');
-  console.log('  Add [location] as last argument to specify data directory');
-  console.log('  - If not specified: Uses sparkle_config from package.json');
-  console.log('  - If specified: Direct path to sparkle data directory');
-  console.log('');
-  console.log('Examples:');
-  console.log('  npx sparkle cat 44332211');
-  console.log('  npx sparkle inspect 44332211');
-  console.log('  npx sparkle cat 44332211 /path/to/test/sparkle-data');
-  console.log('  npx sparkle browser');
-  console.log('');
-}
-
-/**
- * Determine the data directory path
- */
-async function getDataDirectory(locationArg) {
-  const startTime = Date.now();
-  if (VERBOSE) console.error(`[CLI] Determining data directory...`);
-
-  // If location is explicitly provided, use it directly
-  if (locationArg) {
-    if (!existsSync(locationArg)) {
-      throw new Error(`Data directory not found: ${locationArg}`);
+function getLocationArg(argPosition) {
+  const arg = process.argv[argPosition];
+  if (arg === '--json' || arg === undefined) {
+    // Check if there's another arg after --json
+    const nextArg = process.argv[argPosition + 1];
+    if (nextArg && nextArg !== '--json') {
+      return nextArg;
     }
-    const duration = Date.now() - startTime;
-    if (VERBOSE) console.error(`[CLI] Using explicit location: ${locationArg} (${duration}ms)`);
-    return locationArg;
+    return undefined;
   }
-
-  // Otherwise, use sparkle_config from package.json
-  const gitRoot = await getGitRoot();
-  const packageJsonPath = join(gitRoot, 'package.json');
-
-  if (!existsSync(packageJsonPath)) {
-    throw new Error('package.json not found');
-  }
-
-  const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
-
-  if (!packageJson.sparkle_config) {
-    throw new Error('Sparkle is not configured in this repository (no sparkle_config in package.json)');
-  }
-
-  const config = packageJson.sparkle_config;
-  const dataDir = config.directory;
-  const worktreePath = config.worktree_path || '.sparkle-worktree';
-
-  const worktreeDataPath = join(gitRoot, worktreePath, dataDir);
-  if (!existsSync(worktreeDataPath)) {
-    throw new Error(`Sparkle data directory not found: ${worktreeDataPath}`);
-  }
-
-  const duration = Date.now() - startTime;
-  if (VERBOSE) console.error(`[CLI] Using config location: ${worktreeDataPath} (${duration}ms)`);
-  return worktreeDataPath;
-}
-
-/**
- * Initialize Sparkle instance
- */
-async function initializeSparkle(dataDir) {
-  const startTime = Date.now();
-  console.error(`[CLI] Initializing Sparkle...`);
-
-  const sparkle = new Sparkle(dataDir);
-  await sparkle.start();
-
-  const duration = Date.now() - startTime;
-  console.error(`[CLI] Sparkle initialized (${duration}ms)`);
-
-  return sparkle;
-}
-
-/**
- * Cat command - Display item details
- */
-async function catCommand(itemId, location) {
-  const totalStartTime = Date.now();
-
-  // Validate itemId format
-  if (!itemId || !/^\d{8}$/.test(itemId)) {
-    console.error(`Error: Invalid item ID: ${itemId}`);
-    console.error('Item IDs must be 8 digits');
-    process.exit(1);
-  }
-
-  console.error(`[CLI] Cat command for item: ${itemId}`);
-
-  // Get data directory and ensure daemon is running
-  const dataDir = await getDataDirectory(location);
-  const port = await ensureDaemon(dataDir);
-
-  // Get item details via daemon API
-  const fetchStartTime = Date.now();
-  const details = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
-  const fetchDuration = Date.now() - fetchStartTime;
-  console.error(`[CLI] Fetched item details via daemon (${fetchDuration}ms)`);
-
-  // Display item
-  console.log('');
-  console.log('━'.repeat(80));
-  console.log(`Item: ${details.itemId}`);
-  console.log('━'.repeat(80));
-
-  // Tagline
-  if (details.tagline) {
-    console.log(`\nTagline: ${details.tagline}`);
-  }
-
-  // Status
-  const statusSymbol = details.status === 'completed' ? '✓' : '○';
-  console.log(`Status: ${statusSymbol} ${details.status || 'incomplete'}`);
-
-  // Created
-  if (details.created) {
-    const date = new Date(details.created).toLocaleString();
-    console.log(`Created: ${date}`);
-  }
-
-  // Monitored
-  if (details.monitors && details.monitors.length > 0) {
-    console.log(`Monitored by: ${details.monitors.map(m => m.name || m.email).join(', ')}`);
-  }
-
-  // Taken
-  if (details.takenBy) {
-    console.log(`Taken by: ${details.takenBy.name || details.takenBy.email}`);
-  }
-
-  // Ignored
-  if (details.ignored) {
-    console.log(`Ignored: Yes`);
-  }
-
-  // Dependencies
-  if (details.dependencies && details.dependencies.length > 0) {
-    console.log(`\nDependencies (${details.dependencies.length}):`);
-    const depsStartTime = Date.now();
-    for (const depId of details.dependencies) {
-      try {
-        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
-        const status = depDetails.status === 'completed' ? '✓' : '○';
-        const kind = depDetails.status === 'completed' ? 'completed' : 'incomplete';
-        console.log(`  ${status} ${depId} [${kind}]${depDetails.tagline ? ': ' + depDetails.tagline : ''}`);
-      } catch (error) {
-        console.log(`  ? ${depId} [unknown]: (details unavailable)`);
-      }
-    }
-    const depsDuration = Date.now() - depsStartTime;
-    console.error(`[CLI] Fetched ${details.dependencies.length} dependencies via daemon (${depsDuration}ms)`);
-  }
-
-  // Entries
-  if (details.entries && details.entries.length > 0) {
-    console.log(`\nEntries (${details.entries.length}):`);
-    for (const entry of details.entries) {
-      const timestamp = entry.person?.timestamp || entry.timestamp;
-      const date = timestamp ? new Date(timestamp).toLocaleString() : 'unknown date';
-      const author = entry.person?.name || entry.author || 'unknown';
-      console.log(`\n  [${date}] ${author}`);
-      console.log(`  ${entry.text}`);
-    }
-  }
-
-  console.log('');
-  console.log('━'.repeat(80));
-  console.log('');
-
-  const totalDuration = Date.now() - totalStartTime;
-  console.error(`[CLI] Cat command completed (${totalDuration}ms total)`);
-}
-
-/**
- * Display a single item's details (helper for inspect)
- */
-function displayItem(details, label = 'Item') {
-  console.log('');
-  console.log('─'.repeat(80));
-  console.log(`${label}: ${details.itemId}`);
-  console.log('─'.repeat(80));
-
-  // Tagline
-  if (details.tagline) {
-    console.log(`Tagline: ${details.tagline}`);
-  }
-
-  // Status
-  const statusSymbol = details.status === 'completed' ? '✓' : '○';
-  console.log(`Status: ${statusSymbol} ${details.status || 'incomplete'}`);
-
-  // Created
-  if (details.created) {
-    const date = new Date(details.created).toLocaleString();
-    console.log(`Created: ${date}`);
-  }
-
-  // Entries
-  if (details.entries && details.entries.length > 0) {
-    console.log(`\nEntries (${details.entries.length}):`);
-    for (const entry of details.entries) {
-      const timestamp = entry.person?.timestamp || entry.timestamp;
-      const date = timestamp ? new Date(timestamp).toLocaleString() : 'unknown date';
-      const author = entry.person?.name || entry.author || 'unknown';
-      console.log(`  • [${date}] ${author}`);
-      console.log(`    ${entry.text}`);
-    }
-  } else {
-    console.log('\nNo entries');
-  }
-}
-
-/**
- * Inspect command - Display item with full dependency chains
- * Uses /api/dag to match inspector UX behavior exactly
- */
-async function inspectCommand(itemId, location) {
-  const totalStartTime = Date.now();
-
-  // Validate itemId format
-  if (!itemId || !/^\d{8}$/.test(itemId)) {
-    console.error(`Error: Invalid item ID: ${itemId}`);
-    console.error('Item IDs must be 8 digits');
-    process.exit(1);
-  }
-
-  console.error(`[CLI] Inspect command for item: ${itemId}`);
-
-  // Get data directory and ensure daemon is running
-  const dataDir = await getDataDirectory(location);
-  const port = await ensureDaemon(dataDir);
-
-  // Get the DAG data via daemon API (same as inspector UX)
-  const fetchStartTime = Date.now();
-  const dagData = await makeApiRequest(port, `/api/dag?referenceId=${encodeURIComponent(itemId)}`, 'GET');
-  const fetchDuration = Date.now() - fetchStartTime;
-  console.error(`[CLI] Fetched DAG data via daemon (${fetchDuration}ms)`);
-
-  if (!dagData || !dagData.nodes || dagData.nodes.length === 0) {
-    console.error('Error: No DAG data returned');
-    process.exit(1);
-  }
-
-  // Find the anchor node (depth 0)
-  const anchorNode = dagData.nodes.find(node => node.depth === 0);
-  if (!anchorNode) {
-    console.error('Error: Anchor node not found in DAG');
-    process.exit(1);
-  }
-
-  console.log('');
-  console.log('═'.repeat(80));
-  console.log(`INSPECTOR VIEW - Anchor Item: ${itemId}`);
-  console.log('═'.repeat(80));
-
-  // Get full details for anchor
-  const anchorDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
-  displayItem(anchorDetails, 'ANCHOR');
-
-  // Show relationship lists for anchor
-  const dependsOn = anchorNode.full?.dependsOn || [];
-  const providesTo = anchorNode.full?.providesTo || [];
-
-  console.log('');
-  console.log(`Dependencies (needs): [${dependsOn.join(', ')}]`);
-  console.log(`Providers (needed by): [${providesTo.join(', ')}]`);
-
-  // Separate nodes into dependencies and providers
-  const dependencyNodes = [];
-  const providerNodes = [];
-
-  for (const node of dagData.nodes) {
-    if (node.item === itemId) continue; // Skip anchor
-
-    // Dependencies are items that the anchor depends on (depth > 0, in dependsOn chain)
-    // Providers are items that depend on the anchor (depth > 0, in providesTo chain)
-    if (dependsOn.includes(node.item)) {
-      dependencyNodes.push(node);
-    } else if (providesTo.includes(node.item)) {
-      providerNodes.push(node);
-    } else {
-      // This node is part of a deeper chain
-      // Check if it's in the dependency subtree or provider subtree
-      const isInDependencyChain = dagData.nodes.some(n =>
-        dependsOn.includes(n.item) && n.full?.dependsOn?.includes(node.item)
-      );
-      if (isInDependencyChain || node.depth < anchorNode.depth) {
-        dependencyNodes.push(node);
-      } else {
-        providerNodes.push(node);
-      }
-    }
-  }
-
-  // Show dependencies (full chains)
-  if (dependencyNodes.length > 0) {
-    console.log('');
-    console.log('═'.repeat(80));
-    console.log(`DEPENDENCIES (${dependencyNodes.length} items in dependency tree)`);
-    console.log('═'.repeat(80));
-
-    const depsStartTime = Date.now();
-    for (const node of dependencyNodes) {
-      const depId = node.item;
-      const depDependsOn = node.full?.dependsOn || [];
-      const depProvidesTo = node.full?.providesTo || [];
-
-      try {
-        const depDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: depId });
-        displayItem(depDetails, 'DEPENDENCY');
-        console.log(`  Dependencies: [${depDependsOn.join(', ')}]`);
-        console.log(`  Providers: [${depProvidesTo.join(', ')}]`);
-      } catch (error) {
-        console.log('');
-        console.log('─'.repeat(80));
-        console.log(`DEPENDENCY: ${depId}`);
-        console.log('─'.repeat(80));
-        console.log(`Error: ${error.message}`);
-      }
-    }
-    const depsDuration = Date.now() - depsStartTime;
-    console.error(`[CLI] Fetched ${dependencyNodes.length} dependencies via daemon (${depsDuration}ms)`);
-  } else {
-    console.log('');
-    console.log('═'.repeat(80));
-    console.log('DEPENDENCIES');
-    console.log('═'.repeat(80));
-    console.log('No dependencies');
-  }
-
-  // Show providers (full chains)
-  if (providerNodes.length > 0) {
-    console.log('');
-    console.log('═'.repeat(80));
-    console.log(`PROVIDERS (${providerNodes.length} items that depend on anchor)`);
-    console.log('═'.repeat(80));
-
-    const deptsStartTime = Date.now();
-    for (const node of providerNodes) {
-      const provId = node.item;
-      const provDependsOn = node.full?.dependsOn || [];
-      const provProvidesTo = node.full?.providesTo || [];
-
-      try {
-        const provDetails = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId: provId });
-        displayItem(provDetails, 'PROVIDER');
-        console.log(`  Dependencies: [${provDependsOn.join(', ')}]`);
-        console.log(`  Providers: [${provProvidesTo.join(', ')}]`);
-      } catch (error) {
-        console.log('');
-        console.log('─'.repeat(80));
-        console.log(`PROVIDER: ${provId}`);
-        console.log('─'.repeat(80));
-        console.log(`Error: ${error.message}`);
-      }
-    }
-    const deptsDuration = Date.now() - deptsStartTime;
-    console.error(`[CLI] Fetched ${providerNodes.length} providers via daemon (${deptsDuration}ms)`);
-  } else {
-    console.log('');
-    console.log('═'.repeat(80));
-    console.log('PROVIDERS');
-    console.log('═'.repeat(80));
-    console.log('No providers');
-  }
-
-  console.log('');
-  console.log('═'.repeat(80));
-  console.log('');
-
-  const totalDuration = Date.now() - totalStartTime;
-  console.error(`[CLI] Inspect command completed (${totalDuration}ms total)`);
-}
-
-/**
- * Browser command - Open Sparkle in browser
- */
-async function browserCommand() {
-  try {
-    const dataDir = await getDataDirectory();
-    const port = await ensureDaemon(dataDir);
-
-    // Open browser to daemon
-    const url = `http://localhost:${port}`;
-    console.log(`Opening Sparkle at ${url}`);
-    await openBrowser(url);
-  } catch (error) {
-    console.error(`Error: ${error.message}`);
-    process.exit(1);
-  }
+  return arg;
 }
 
 /**
@@ -460,15 +75,31 @@ async function main() {
     // Route to appropriate command
     switch (command) {
       case 'cat':
-        await catCommand(arg1, arg2);
+        await catCommand(arg1, getLocationArg(4));
         break;
 
       case 'inspect':
-        await inspectCommand(arg1, arg2);
+        await inspectCommand(arg1, getLocationArg(4));
         break;
 
       case 'browser':
         await browserCommand();
+        break;
+
+      case 'find-item':
+        await findItemCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'create-item':
+        await createItemCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'add-entry':
+        await addEntryCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'alter':
+        await alterCommand(arg1, arg2, arg3, getLocationArg(6));
         break;
 
       case 'help':

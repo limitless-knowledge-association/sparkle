@@ -59,6 +59,25 @@ npx sparkle cat <itemId>
 # View item with full dependency chains
 npx sparkle inspect <itemId>
 
+# Search for items by ID or tagline
+npx sparkle find-item "search term"
+
+# Create a new item and return its ID
+npx sparkle create-item "Item tagline"
+
+# Add an entry to an item (reads from stdin)
+echo "Entry text" | npx sparkle add-entry <itemId>
+
+# Alter item fields (status, monitoring, visibility, responsibility)
+npx sparkle alter <itemId> status completed
+npx sparkle alter <itemId> monitoring yes
+npx sparkle alter <itemId> visibility no
+npx sparkle alter <itemId> responsibility yes
+
+# All commands support --json flag for machine-readable output
+npx sparkle cat <itemId> --json
+npx sparkle find-item "search" --json
+
 # Start daemon only (background)
 npx sparkle-daemon
 

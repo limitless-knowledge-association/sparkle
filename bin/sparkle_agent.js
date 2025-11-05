@@ -1352,15 +1352,27 @@ async function handleRequest(req, res) {
 
     if (path === '/api/allItems') {
       const startTime = Date.now();
-      console.log(`[API] GET /api/allItems - start: ${new Date(startTime).toISOString()}`);
+      const searchParam = url.searchParams.get('search');
+      console.log(`[API] GET /api/allItems - start: ${new Date(startTime).toISOString()}, search: ${searchParam || 'none'}`);
 
       const items = await sparkle.getAllItems();
 
+      // Filter items if search parameter provided
+      let filteredItems = items;
+      if (searchParam) {
+        const searchLower = searchParam.toLowerCase();
+        filteredItems = items.filter(item => {
+          const itemIdMatch = item.itemId && item.itemId.includes(searchLower);
+          const taglineMatch = item.tagline && item.tagline.toLowerCase().includes(searchLower);
+          return itemIdMatch || taglineMatch;
+        });
+      }
+
       const endTime = Date.now();
       const duration = endTime - startTime;
-      console.log(`[API] GET /api/allItems - end: ${new Date(endTime).toISOString()}, duration: ${duration}ms, items: ${items.length}`);
+      console.log(`[API] GET /api/allItems - end: ${new Date(endTime).toISOString()}, duration: ${duration}ms, total: ${items.length}, filtered: ${filteredItems.length}`);
 
-      sendJSON(res, 200, { items });
+      sendJSON(res, 200, { items: filteredItems });
       return;
     }
 

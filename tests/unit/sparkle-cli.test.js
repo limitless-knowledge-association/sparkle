@@ -152,7 +152,7 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item1 } = await setupTestData('cat-basic');
 
       try {
-        const { stdout, stderr } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        const { stdout, stderr } = await execAsync(`SPARKLE_CLIENT_VERBOSE=true node ${CLI_PATH} cat ${item1} ${dataDir}`);
 
         expect(stdout).toContain(`Item: ${item1}`);
         expect(stdout).toContain('Test item 1');
@@ -217,7 +217,7 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item2, item3 } = await setupTestData('inspect-basic');
 
       try {
-        const { stdout, stderr } = await execAsync(`node ${CLI_PATH} inspect ${item3} ${dataDir}`);
+        const { stdout, stderr } = await execAsync(`SPARKLE_CLIENT_VERBOSE=true node ${CLI_PATH} inspect ${item3} ${dataDir}`);
 
         // Verify output includes anchor item
         expect(stdout).toContain('INSPECTOR VIEW');
@@ -231,8 +231,8 @@ describe('Sparkle CLI', () => {
         expect(stdout).toContain(item2);
         expect(stdout).toContain('Test item 2');
 
-        // Verify dependents section
-        expect(stdout).toContain('DEPENDENTS');
+        // Verify providers section (renamed from dependents for clarity)
+        expect(stdout).toContain('PROVIDERS');
 
         // Verify timing logs
         expect(stderr).toContain('[CLI]');
@@ -249,16 +249,16 @@ describe('Sparkle CLI', () => {
         // Inspect item2, which is depended on by item3
         const { stdout } = await execAsync(`node ${CLI_PATH} inspect ${item2} ${dataDir}`);
 
-        expect(stdout).toContain('DEPENDENTS');
+        expect(stdout).toContain('PROVIDERS');
 
-        // Check if there are dependents or if it says "No dependents"
-        if (stdout.includes('No dependents')) {
-          // This is expected - dependents may not be calculated yet
-          console.log('⊘ Skipping dependents check (aggregate may not have reverse dependencies yet)');
+        // Check if there are providers or if it says "No providers"
+        if (stdout.includes('No providers')) {
+          // This is expected - providers may not be calculated yet
+          console.log('⊘ Skipping providers check (aggregate may not have reverse dependencies yet)');
           return;
         }
 
-        expect(stdout).toContain('DEPENDENT');
+        expect(stdout).toContain('PROVIDER');
         expect(stdout).toContain(item3);
         expect(stdout).toContain('Test item 3');
       } finally {
@@ -316,5 +316,290 @@ describe('Sparkle CLI', () => {
         await cleanupEnvironment(env.testDir);
       }
     }, 90000); // 90s timeout - runs two CLI commands
+  });
+
+  describe('Find-item command', () => {
+    test('finds items by partial itemId match', async () => {
+      const { env, dataDir, item1, item2 } = await setupTestData('find-by-id');
+
+      try {
+        // Search for first 4 digits of item1
+        const searchTerm = item1.substring(0, 4);
+        const { stdout } = await execAsync(`node ${CLI_PATH} find-item "${searchTerm}" ${dataDir}`);
+
+        expect(stdout).toContain(item1);
+        expect(stdout).toContain('Test item 1');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('finds items by tagline substring (case-insensitive)', async () => {
+      const { env, dataDir, item1, item2 } = await setupTestData('find-by-tagline');
+
+      try {
+        // Search for "test" (lowercase)
+        const { stdout } = await execAsync(`node ${CLI_PATH} find-item "test" ${dataDir}`);
+
+        expect(stdout).toContain(item1);
+        expect(stdout).toContain('Test item 1');
+        expect(stdout).toContain(item2);
+        expect(stdout).toContain('Test item 2');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('returns JSON format with --json flag', async () => {
+      const { env, dataDir, item1 } = await setupTestData('find-json');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} find-item "Test" ${dataDir} --json`);
+
+        const results = JSON.parse(stdout);
+        expect(Array.isArray(results)).toBe(true);
+        expect(results.length).toBeGreaterThan(0);
+        expect(results[0]).toHaveProperty('itemId');
+        expect(results[0]).toHaveProperty('tagline');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('returns empty result when no match', async () => {
+      const { env, dataDir } = await setupTestData('find-nomatch');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} find-item "nonexistent" ${dataDir}`);
+
+        expect(stdout).toContain('No items found');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+  });
+
+  describe('Create-item command', () => {
+    test('creates item and returns ID', async () => {
+      const { env, dataDir } = await setupTestData('create-basic');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} create-item "New test item" ${dataDir}`);
+
+        // Should output just the ID
+        const itemId = stdout.trim();
+        expect(itemId).toMatch(/^\d{8}$/);
+
+        // Verify item was created by retrieving it
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${itemId} ${dataDir}`);
+        expect(catOutput).toContain('New test item');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('creates item with JSON output', async () => {
+      const { env, dataDir } = await setupTestData('create-json');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} create-item "Another new item" ${dataDir} --json`);
+
+        const result = JSON.parse(stdout);
+        expect(result).toHaveProperty('itemId');
+        expect(result).toHaveProperty('tagline');
+        expect(result.tagline).toBe('Another new item');
+        expect(result.itemId).toMatch(/^\d{8}$/);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+  });
+
+  describe('Add-entry command', () => {
+    test('adds entry from stdin', async () => {
+      const { env, dataDir, item1 } = await setupTestData('add-entry-basic');
+
+      try {
+        const entryText = 'This is a new entry from stdin';
+        const { stdout } = await execAsync(`echo "${entryText}" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+
+        expect(stdout).toContain(`Entry added to ${item1}`);
+
+        // Verify entry was added
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        expect(catOutput).toContain(entryText);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('adds entry with JSON output', async () => {
+      const { env, dataDir, item1 } = await setupTestData('add-entry-json');
+
+      try {
+        const entryText = 'Another entry';
+        const { stdout } = await execAsync(`echo "${entryText}" | node ${CLI_PATH} add-entry ${item1} ${dataDir} --json`);
+
+        const result = JSON.parse(stdout);
+        expect(result).toHaveProperty('itemId');
+        expect(result).toHaveProperty('success');
+        expect(result.success).toBe(true);
+        expect(result.itemId).toBe(item1);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+  });
+
+  describe('Alter command', () => {
+    test('alters status to completed', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-status');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);
+
+        expect(stdout).toContain('Status changed to completed');
+
+        // Verify status was changed
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        expect(catOutput).toContain('✓ completed');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('alters monitoring (enable)', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-monitoring');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} monitoring yes ${dataDir}`);
+
+        expect(stdout).toContain('Monitoring enabled');
+
+        // Verify monitoring was enabled
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        expect(catOutput).toContain('Monitored by:');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('alters visibility (hide)', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-visibility');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} visibility no ${dataDir}`);
+
+        expect(stdout).toContain('Visibility set to hidden');
+
+        // Verify visibility was changed
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        expect(catOutput).toContain('Ignored: Yes');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('alters responsibility (take)', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-responsibility');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} responsibility true ${dataDir}`);
+
+        expect(stdout).toContain('Responsibility taken');
+
+        // Verify responsibility was taken
+        const { stdout: catOutput } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        expect(catOutput).toContain('Taken by:');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('parses boolean values correctly', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-boolean-formats');
+
+      try {
+        // Test yes/no
+        await execAsync(`node ${CLI_PATH} alter ${item1} monitoring yes ${dataDir}`);
+
+        // Test true/false
+        await execAsync(`node ${CLI_PATH} alter ${item1} monitoring false ${dataDir}`);
+
+        // Test 1/0
+        await execAsync(`node ${CLI_PATH} alter ${item1} monitoring 1 ${dataDir}`);
+
+        // All should succeed without errors
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('validates status values', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-invalid-status');
+
+      try {
+        // The two built-in statuses should always work
+        await execAsync(`node ${CLI_PATH} alter ${item1} status incomplete ${dataDir}`);
+        await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);
+
+        // Invalid status should fail (daemon validates)
+        await expect(
+          execAsync(`node ${CLI_PATH} alter ${item1} status invalid_status ${dataDir}`)
+        ).rejects.toMatchObject({
+          code: 1
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('validates custom status values', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-custom-status');
+
+      try {
+        // Create custom statuses.json file with additional status
+        const { writeFile } = await import('fs/promises');
+        const { join } = await import('path');
+        const statusesPath = join(dataDir, 'statuses.json');
+        await writeFile(statusesPath, JSON.stringify(['in-progress', 'blocked']));
+
+        // Built-in statuses should still work
+        await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);
+        await execAsync(`node ${CLI_PATH} alter ${item1} status incomplete ${dataDir}`);
+
+        // Custom statuses should now work
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} status in-progress ${dataDir}`);
+        expect(stdout).toContain('Status changed to in-progress');
+
+        await execAsync(`node ${CLI_PATH} alter ${item1} status blocked ${dataDir}`);
+
+        // Invalid status should still fail
+        await expect(
+          execAsync(`node ${CLI_PATH} alter ${item1} status still-invalid ${dataDir}`)
+        ).rejects.toMatchObject({
+          code: 1
+        });
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('returns JSON output with --json flag', async () => {
+      const { env, dataDir, item1 } = await setupTestData('alter-json');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} alter ${item1} monitoring yes ${dataDir} --json`);
+
+        const result = JSON.parse(stdout);
+        expect(result).toHaveProperty('itemId');
+        expect(result).toHaveProperty('field');
+        expect(result).toHaveProperty('success');
+        expect(result.success).toBe(true);
+        expect(result.field).toBe('monitoring');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
   });
 });
