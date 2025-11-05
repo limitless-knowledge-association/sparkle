@@ -11,28 +11,35 @@
     /* Page layout for scrollable items container */
     html, body {
       height: 100%;
+      margin: 0;
       overflow: hidden;
     }
 
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
     .container {
-      height: 100%;
+      flex: 1;  /* Take remaining space after header */
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      box-sizing: border-box;
+      max-width: none;  /* Override base CSS max-width to use full width */
+      margin: 0;  /* Override base CSS margin */
     }
 
     .section {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
+      min-height: 0;  /* Allow flex to shrink */
       overflow: hidden;
+      box-sizing: border-box;
     }
 
-    #itemsContainer {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* itemsContainer styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* List View-specific styles */
     .pending-list {
@@ -360,9 +367,12 @@
       <div class="filter-badges" id="filterBadges">
         <span class="filter-badges-empty">No active filters (click Filter to configure)</span>
       </div>
-      <div id="itemsContainer">
+      <div id="itemsContainer" class="scrollable-view-container">
         <div class="empty-state">Loading...</div>
       </div>
+    </div>
+    <div class="page-footer">
+      Copyright &copy; 2025 Limitless Knowledge Association
     </div>
   </div>
 

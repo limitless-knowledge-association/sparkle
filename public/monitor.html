@@ -12,34 +12,42 @@
     /* Page layout for scrollable monitor content */
     html, body {
       height: 100%;
+      margin: 0;
       overflow: hidden;
     }
 
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
     .container {
-      height: 100%;
+      flex: 1;  /* Take remaining space after header */
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      box-sizing: border-box;
+      max-width: none;  /* Override base CSS max-width to prevent centering */
+      margin: 0;  /* Override base CSS margin */
     }
 
     .section {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
+      min-height: 0;  /* Allow flex to shrink */
       overflow: hidden;
+      box-sizing: border-box;
+      width: 100%;  /* Prevent width collapse when empty */
     }
 
-    #monitorContent {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* monitorContent styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* Monitor-specific styles */
     .monitor-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 12px;
       margin-bottom: 15px;
     }
 
@@ -53,6 +61,10 @@
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    #monitorContent {
+      min-width: 0;  /* Prevent width collapse */
     }
 
     .monitor-filter label {
@@ -167,13 +179,16 @@
         <div class="monitor-filter">
           <label>
             <input type="checkbox" id="monitoredOnlyCheckbox" checked>
-            Monitored
+            Only what I monitor
           </label>
         </div>
       </div>
-      <div id="monitorContent">
+      <div id="monitorContent" class="scrollable-view-container">
         <div class="empty-state">Loading...</div>
       </div>
+    </div>
+    <div class="page-footer">
+      Copyright &copy; 2025 Limitless Knowledge Association
     </div>
   </div>
 
@@ -239,9 +254,20 @@
         } else {
           await controller.loadForAllItems();
         }
+        // Update empty message based on checkbox state after data loads
+        updateEmptyMessage();
       } catch (error) {
         view.renderEmpty('Error loading data');
         console.error('Error loading data:', error);
+      }
+    }
+
+    // Update empty message based on current checkbox state
+    function updateEmptyMessage() {
+      const hasData = view.currentEntries && view.currentEntries.length > 0;
+      if (!hasData) {
+        const emptyMessage = monitoredOnlyMode ? 'No monitored events' : 'No events';
+        view.renderEmpty(emptyMessage);
       }
     }
 

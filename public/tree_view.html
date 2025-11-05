@@ -11,28 +11,35 @@
     /* Page layout for scrollable tree container */
     html, body {
       height: 100%;
+      margin: 0;
       overflow: hidden;
     }
 
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
     .container {
-      height: 100%;
+      flex: 1;  /* Take remaining space after header */
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      box-sizing: border-box;
+      max-width: none;  /* Override base CSS max-width to use full width */
+      margin: 0;  /* Override base CSS margin */
     }
 
     .section {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      flex: 1;
+      min-height: 0;  /* Allow flex to shrink */
       overflow: hidden;
+      box-sizing: border-box;
     }
 
-    #treeContainer {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* treeContainer styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* Tree View-specific styles */
     .tree-container {
@@ -102,12 +109,15 @@
   <div class="container">
     <div class="section">
       <h2>Dependency Tree</h2>
-      <div id="treeContainer" class="tree-container">
+      <div id="treeContainer" class="tree-container scrollable-view-container">
         <div class="loading-state">
           <div class="spinner"></div>
           <div>Loading tree...</div>
         </div>
       </div>
+    </div>
+    <div class="page-footer">
+      Copyright &copy; 2025 Limitless Knowledge Association
     </div>
   </div>
 
