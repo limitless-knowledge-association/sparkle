@@ -44,7 +44,7 @@
     .monitor-header {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      gap: 12px;
       margin-bottom: 15px;
     }
 
@@ -58,6 +58,10 @@
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    #monitorContent {
+      min-width: 0;  /* Prevent width collapse */
     }
 
     .monitor-filter label {
@@ -172,7 +176,7 @@
         <div class="monitor-filter">
           <label>
             <input type="checkbox" id="monitoredOnlyCheckbox" checked>
-            Monitored
+            Only what I monitor
           </label>
         </div>
       </div>
