@@ -72,6 +72,17 @@ body {
   padding-bottom: 20px;
 }
 
+/* Fixed footer for scrollable views */
+.page-footer {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 8px;
+  font-size: 6pt;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
 .section h2 {
   font-size: 20px;
   margin-bottom: 15px;

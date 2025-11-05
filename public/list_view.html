@@ -19,14 +19,15 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      padding: 0;  /* Remove padding to prevent height overflow beyond viewport */
+      box-sizing: border-box;  /* Include padding in height calculation */
     }
 
     .section {
       display: flex;
       flex-direction: column;
-      flex: 1;  /* Use flex instead of height: 100% to properly account for padding */
+      flex: 1;
       overflow: hidden;
+      box-sizing: border-box;  /* Include padding in height calculation */
     }
 
     /* itemsContainer styling moved to .scrollable-view-container in sparkle-base.css */
@@ -360,6 +361,9 @@
       <div id="itemsContainer" class="scrollable-view-container">
         <div class="empty-state">Loading...</div>
       </div>
+    </div>
+    <div class="page-footer">
+      Copyright &copy; 2025 Limitless Knowledge Association
     </div>
   </div>
 
