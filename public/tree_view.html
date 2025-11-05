@@ -11,23 +11,30 @@
     /* Page layout for scrollable tree container */
     html, body {
       height: 100%;
+      margin: 0;
       overflow: hidden;
     }
 
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
     .container {
-      height: 100%;
+      flex: 1;  /* Take remaining space after header */
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      box-sizing: border-box;  /* Include padding in height calculation */
+      box-sizing: border-box;
     }
 
     .section {
       display: flex;
       flex-direction: column;
       flex: 1;
+      min-height: 0;  /* Allow flex to shrink */
       overflow: hidden;
-      box-sizing: border-box;  /* Include padding in height calculation */
+      box-sizing: border-box;
     }
 
     /* treeContainer styling moved to .scrollable-view-container in sparkle-base.css */
