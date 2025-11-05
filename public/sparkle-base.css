@@ -64,6 +64,14 @@ body {
   box-shadow: 0 2px 4px var(--shadow-color);
 }
 
+/* Scrollable view container pattern - shared across list, tree, and monitor views */
+.scrollable-view-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 20px;
+}
+
 .section h2 {
   font-size: 20px;
   margin-bottom: 15px;

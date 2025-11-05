@@ -28,11 +28,7 @@
       overflow: hidden;
     }
 
-    #treeContainer {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* treeContainer styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* Tree View-specific styles */
     .tree-container {
@@ -102,7 +98,7 @@
   <div class="container">
     <div class="section">
       <h2>Dependency Tree</h2>
-      <div id="treeContainer" class="tree-container">
+      <div id="treeContainer" class="tree-container scrollable-view-container">
         <div class="loading-state">
           <div class="spinner"></div>
           <div>Loading tree...</div>

@@ -28,11 +28,7 @@
       overflow: hidden;
     }
 
-    #itemsContainer {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* itemsContainer styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* List View-specific styles */
     .pending-list {
@@ -360,7 +356,7 @@
       <div class="filter-badges" id="filterBadges">
         <span class="filter-badges-empty">No active filters (click Filter to configure)</span>
       </div>
-      <div id="itemsContainer">
+      <div id="itemsContainer" class="scrollable-view-container">
         <div class="empty-state">Loading...</div>
       </div>
     </div>

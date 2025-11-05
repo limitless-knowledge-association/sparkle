@@ -29,11 +29,7 @@
       overflow: hidden;
     }
 
-    #monitorContent {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-    }
+    /* monitorContent styling moved to .scrollable-view-container in sparkle-base.css */
 
     /* Monitor-specific styles */
     .monitor-header {
@@ -171,7 +167,7 @@
           </label>
         </div>
       </div>
-      <div id="monitorContent">
+      <div id="monitorContent" class="scrollable-view-container">
         <div class="empty-state">Loading...</div>
       </div>
     </div>
