@@ -36,6 +36,7 @@
       min-height: 0;  /* Allow flex to shrink */
       overflow: hidden;
       box-sizing: border-box;
+      width: 100%;  /* Prevent width collapse when empty */
     }
 
     /* monitorContent styling moved to .scrollable-view-container in sparkle-base.css */
@@ -251,9 +252,20 @@
         } else {
           await controller.loadForAllItems();
         }
+        // Update empty message based on checkbox state after data loads
+        updateEmptyMessage();
       } catch (error) {
         view.renderEmpty('Error loading data');
         console.error('Error loading data:', error);
+      }
+    }
+
+    // Update empty message based on current checkbox state
+    function updateEmptyMessage() {
+      const hasData = view.currentEntries && view.currentEntries.length > 0;
+      if (!hasData) {
+        const emptyMessage = monitoredOnlyMode ? 'No monitored events' : 'No events';
+        view.renderEmpty(emptyMessage);
       }
     }
 
