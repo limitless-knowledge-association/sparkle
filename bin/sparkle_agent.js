@@ -844,7 +844,10 @@ async function sendHTML(res, filename) {
   try {
     const filePath = join(__dirname, '../public', filename);
     const content = await readFile(filePath, 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
     res.end(content);
   } catch (error) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -903,7 +906,10 @@ async function sendStaticFile(res, requestPath) {
 
     // Read and send the file
     const content = await readFile(resolvedFilePath, contentType.startsWith('image/') ? null : 'utf8');
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
     res.end(content);
   } catch (error) {
     if (error.code === 'ENOENT') {
@@ -1557,6 +1563,7 @@ async function handleRequest(req, res) {
         const content = await readFile(filePath, 'utf8');
         res.writeHead(200, {
           'Content-Type': 'application/javascript',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Access-Control-Allow-Origin': '*'
         });
         res.end(content);
