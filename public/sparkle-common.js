@@ -5,6 +5,7 @@
 
 import { HEARTBEAT_TIMEOUT_MS } from '../src/heartbeat-config.js';
 import { GitStatus } from './GitStatus.js';
+import { SPARKLE_VERSION } from './version.js';
 
 // Server connection state
 let isServerConnected = true;
@@ -347,7 +348,7 @@ export function initializeHeader(options = {}) {
   // Create header HTML with two-line layout
   const headerHTML = `
     <div class="sparkle-header">
-      <h1 class="sparkle-title">✨ Sparkle <span id="sparkleVersion" style="font-size: 0.5em; font-weight: normal;">-</span></h1>
+      <h1 class="sparkle-title">✨ Sparkle <span id="sparkleVersion" style="font-size: 0.5em; font-weight: normal;">v${SPARKLE_VERSION}</span></h1>
       <div class="status-bar">
         <div class="git-info">
           <div class="git-lines">
@@ -841,19 +842,30 @@ export async function loadBranchStatus() {
 }
 
 /**
- * Load and display Sparkle version in header
+ * Load and verify Sparkle version from server
+ * The baked version is displayed immediately on page load.
+ * This function verifies the server version matches the client version.
  */
 export async function loadVersion() {
   try {
     const response = await fetch('/api/version');
     const data = await response.json();
 
-    document.getElementById('sparkleVersion').textContent = `v${data.version}`;
+    // Verify server version matches client version
+    if (data.version !== SPARKLE_VERSION) {
+      console.warn(`Version mismatch: client=${SPARKLE_VERSION}, server=${data.version}`);
+      // Update display to show server version with warning indicator
+      document.getElementById('sparkleVersion').textContent = `v${data.version} (!)`;
+      document.getElementById('sparkleVersion').title = `Client version: ${SPARKLE_VERSION}, Server version: ${data.version}`;
+    }
 
     return data.version;
   } catch (error) {
     console.error('Failed to load version:', error);
-    document.getElementById('sparkleVersion').textContent = 'error';
+    // Keep the baked version displayed, but add error indicator
+    const versionEl = document.getElementById('sparkleVersion');
+    versionEl.textContent = `v${SPARKLE_VERSION} (?)`;
+    versionEl.title = 'Could not verify server version';
     return null;
   }
 }
