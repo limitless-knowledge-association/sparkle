@@ -119,9 +119,8 @@ export async function getDataDirectory(locationArg) {
   const worktreePath = config.worktree_path || '.sparkle-worktree';
 
   const worktreeDataPath = join(gitRoot, worktreePath, dataDir);
-  if (!existsSync(worktreeDataPath)) {
-    throw new Error(`Sparkle data directory not found: ${worktreeDataPath}`);
-  }
+  // Don't check if worktreeDataPath exists - the daemon will create it if needed
+  // This allows fresh clones to work (daemon calls setupFromExistingBranch())
 
   const duration = Date.now() - startTime;
   if (VERBOSE) console.error(`[CLI] Using config location: ${worktreeDataPath} (${duration}ms)`);
