@@ -34,14 +34,34 @@ function notifyGitAvailability(available, reason = 'unknown', details = null) {
 }
 
 /**
- * Get the git root directory
+ * Get the git root directory (main worktree location)
+ * For regular repos: returns the repo root
+ * For worktrees: returns the main worktree root (where .git directory lives)
+ * This ensures all worktrees share the same sparkle-worktree location
  * @param {string} [cwd=process.cwd()] - Starting directory
  * @returns {Promise<string>} Git root directory path
  */
 export async function getGitRoot(cwd = process.cwd()) {
   try {
-    const { stdout } = await execAsync('git rev-parse --show-toplevel', { cwd });
-    return stdout.trim();
+    // Get the common git directory (works for both regular repos and worktrees)
+    const { stdout: gitCommonDir } = await execAsync('git rev-parse --git-common-dir', { cwd });
+    const commonDir = gitCommonDir.trim();
+
+    // For worktrees, --git-common-dir returns /path/to/main/.git
+    // For regular repos, it returns .git (relative path)
+    // We need to get the parent directory and resolve it to absolute path
+    const { dirname, resolve } = await import('path');
+
+    let gitRoot;
+    if (commonDir.endsWith('.git')) {
+      // Absolute or relative path ending in .git
+      gitRoot = dirname(resolve(cwd, commonDir));
+    } else {
+      // Shouldn't happen, but handle it
+      gitRoot = resolve(cwd, commonDir);
+    }
+
+    return gitRoot;
   } catch (error) {
     throw new Error(`Not a git repository: ${error.message}`);
   }
