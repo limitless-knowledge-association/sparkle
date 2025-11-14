@@ -336,23 +336,8 @@ export async function setupWorktree(gitRoot, branchName, sparkleDir, worktreePat
 
   // Add worktree directory to .gitignore in main repository (if not already there)
   // This prevents the worktree from showing as untracked in the main working directory
-  const gitignorePath = join(gitRoot, '.gitignore');
-  const worktreeIgnoreEntry = `${worktreePath}/`;
-
   try {
-    let gitignoreContent = '';
-    try {
-      gitignoreContent = await readFile(gitignorePath, 'utf8');
-    } catch {
-      // .gitignore doesn't exist, will create it
-    }
-
-    // Check if worktree is already in .gitignore
-    if (!gitignoreContent.split('\n').includes(worktreeIgnoreEntry)) {
-      // Add worktree to .gitignore
-      const newContent = gitignoreContent ? `${gitignoreContent}\n${worktreeIgnoreEntry}\n` : `${worktreeIgnoreEntry}\n`;
-      await writeFile(gitignorePath, newContent, 'utf8');
-    }
+    await addToGitignore(gitRoot, `${worktreePath}/`);
   } catch (error) {
     // Non-fatal: .gitignore update failed, worktree will still work
     // User will just see it as untracked in main repo
