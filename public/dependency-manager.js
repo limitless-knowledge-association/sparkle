@@ -7,6 +7,8 @@ import { openItemCreator } from './item-creator.js';
 import { openItemEditor } from './item-editor.js';
 import { subscribeToEvent } from './sparkle-common.js';
 import { modalStack } from './modal-stack.js';
+import { applyAllFilters } from './listFilter.js';
+import { openFilterModal } from './filter-modal.js';
 
 /**
  * Dependency Manager Modal Class
@@ -31,9 +33,21 @@ class DependencyManagerModal {
     this.unsubscribeServerDisconnected = null;
     this.waitingForItemId = null;
 
+    // Filter state
+    this.filters = {
+      pending: 'all',
+      monitor: 'all',
+      ignored: 'not-ignored', // default matches list view
+      taken: 'all',
+      searchText: ''
+    };
+    this.pendingItemIds = new Set();
+    this.currentUserEmail = '';
+
     this.createDOM();
     this.setupEventHandlers();
     this.loadDependencies();
+    this.loadFilterData();
   }
 
   /**
@@ -358,9 +372,17 @@ class DependencyManagerModal {
       html += '</div>';
     }
 
-    // Search box
-    html += '<div class="dep-search-container">';
-    html += '<input type="text" class="dep-search-box" placeholder="Search items..." />';
+    // Filter button and search box
+    html += '<div style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">';
+    html += '<button class="btn-secondary dep-filter-btn" style="margin: 0; padding: 8px 16px; white-space: nowrap;">Filter</button>';
+    html += '<div style="flex: 1;">';
+    html += '<input type="text" class="dep-search-box" placeholder="Search by tagline or item ID..." />';
+    html += '</div>';
+    html += '</div>';
+
+    // Filter badges
+    html += '<div class="filter-badges dep-filter-badges" id="depFilterBadges-' + this.id + '">';
+    html += '<span class="filter-badges-empty">No active filters</span>';
     html += '</div>';
 
     // Current dependencies/dependents
@@ -421,10 +443,20 @@ class DependencyManagerModal {
    * Setup event handlers for dependency list items
    */
   setupDependencyListHandlers() {
+    // Filter button
+    const filterBtn = this.element.querySelector('.dep-filter-btn');
+    if (filterBtn) {
+      filterBtn.addEventListener('click', () => this.openFilterSettings());
+    }
+
     // Search box
     const searchBox = this.element.querySelector('.dep-search-box');
     if (searchBox) {
-      searchBox.addEventListener('input', () => this.filterDependencyList());
+      searchBox.value = this.filters.searchText; // Restore search text
+      searchBox.addEventListener('input', (e) => {
+        this.filters.searchText = e.target.value;
+        this.filterDependencyList();
+      });
     }
 
     // Checkboxes and list items
@@ -454,6 +486,12 @@ class DependencyManagerModal {
 
     // Initial state is clean, update buttons
     this.transitionToState('clean');
+
+    // Render filter badges
+    this.renderFilterBadges();
+
+    // Apply initial filtering
+    this.filterDependencyList();
   }
 
   /**
@@ -473,23 +511,37 @@ class DependencyManagerModal {
   }
 
   /**
-   * Filter dependency list based on search
+   * Filter dependency list using listFilter.js
    */
   filterDependencyList() {
-    const searchBox = this.element.querySelector('.dep-search-box');
-    if (!searchBox) return;
+    if (!this.dependencyData) return;
 
-    const searchText = searchBox.value.toLowerCase().trim();
+    // Combine current and candidates into a single list for filtering
+    const allItems = [...this.dependencyData.current, ...this.dependencyData.candidates];
+
+    // Get itemDetailsCache from global window object (browser pattern)
+    const itemDetailsCache = window.itemsCache ? window.itemsCache.cache : new Map();
+
+    // Apply all filters using listFilter.js
+    const filteredItems = applyAllFilters(allItems, {
+      pendingItemIds: this.pendingItemIds,
+      pendingFilter: this.filters.pending,
+      itemDetailsCache: itemDetailsCache,
+      currentUserEmail: this.currentUserEmail,
+      monitorFilter: this.filters.monitor,
+      ignoredFilter: this.filters.ignored,
+      takenFilter: this.filters.taken,
+      searchText: this.filters.searchText
+    });
+
+    // Create a set of filtered item IDs for quick lookup
+    const filteredIds = new Set(filteredItems.map(item => item.itemId));
+
+    // Show/hide DOM elements based on filter results
     const items = this.element.querySelectorAll('.dep-item');
-
     for (const item of items) {
-      const tagline = item.getAttribute('data-tagline') || '';
-      const itemId = item.getAttribute('data-itemid') || '';
-
-      const matches = searchText === '' ||
-                     tagline.includes(searchText) ||
-                     itemId.includes(searchText);
-
+      const itemId = item.getAttribute('data-itemid');
+      const matches = filteredIds.has(itemId);
       item.style.display = matches ? 'flex' : 'none';
     }
   }
@@ -551,6 +603,132 @@ class DependencyManagerModal {
         this.hideLinkingOverlay();
       }
     });
+  }
+
+  /**
+   * Load filter-related data (pending items and current user)
+   */
+  async loadFilterData() {
+    try {
+      // Load pending items
+      const pendingData = await apiCall('/api/getPendingItems');
+      this.pendingItemIds = new Set(pendingData.pendingItems || []);
+
+      // Load current user email
+      const userData = await apiCall('/api/getCurrentUser');
+      this.currentUserEmail = userData.email || '';
+    } catch (error) {
+      console.error('Failed to load filter data:', error);
+    }
+  }
+
+  /**
+   * Open filter settings modal
+   */
+  openFilterSettings() {
+    openFilterModal(this.filters, (newFilters) => {
+      this.filters.pending = newFilters.pending;
+      this.filters.monitor = newFilters.monitor;
+      this.filters.ignored = newFilters.ignored;
+      this.filters.taken = newFilters.taken;
+      this.renderFilterBadges();
+      this.filterDependencyList();
+    });
+  }
+
+  /**
+   * Render filter badges showing active filters
+   */
+  renderFilterBadges() {
+    const badgesContainer = this.element.querySelector(`#depFilterBadges-${this.id}`);
+    if (!badgesContainer) return;
+
+    const badges = [];
+
+    // Pending filter
+    if (this.filters.pending !== 'all') {
+      const label = this.filters.pending === 'pending' ? 'Pending only' : 'Not pending';
+      badges.push({ type: 'pending', label });
+    }
+
+    // Monitor filter
+    if (this.filters.monitor !== 'all') {
+      const label = this.filters.monitor === 'monitored' ? 'Monitored only' : 'Not monitored';
+      badges.push({ type: 'monitor', label });
+    }
+
+    // Ignored filter
+    if (this.filters.ignored !== 'not-ignored') {
+      const label = this.filters.ignored === 'ignored' ? 'Ignored only' : 'All (including ignored)';
+      badges.push({ type: 'ignored', label });
+    }
+
+    // Taken filter
+    if (this.filters.taken !== 'all') {
+      let label = 'Taken by anyone';
+      if (this.filters.taken === 'not-taken') {
+        label = 'Not taken';
+      } else if (this.filters.taken !== 'taken') {
+        // Specific person's email - try to find their name
+        const takersCache = window.takersCache;
+        if (takersCache) {
+          const takers = takersCache.getTakers();
+          const taker = takers.find(t => t.email === this.filters.taken);
+          if (taker) {
+            label = `Taken by ${taker.name}`;
+          } else {
+            label = `Taken by ${this.filters.taken}`;
+          }
+        } else {
+          label = `Taken by ${this.filters.taken}`;
+        }
+      }
+      badges.push({ type: 'taken', label });
+    }
+
+    // Render badges
+    if (badges.length === 0) {
+      badgesContainer.innerHTML = '<span class="filter-badges-empty">No active filters</span>';
+    } else {
+      let html = '';
+      for (const badge of badges) {
+        html += `<span class="filter-badge">
+          ${escapeHtml(badge.label)}
+          <button class="filter-badge-remove" data-filter-type="${badge.type}" title="Remove filter">&times;</button>
+        </span>`;
+      }
+      badgesContainer.innerHTML = html;
+
+      // Add event listeners to remove buttons
+      badgesContainer.querySelectorAll('.filter-badge-remove').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const filterType = e.target.getAttribute('data-filter-type');
+          this.removeFilter(filterType);
+        });
+      });
+    }
+  }
+
+  /**
+   * Remove a specific filter
+   */
+  removeFilter(filterType) {
+    switch (filterType) {
+      case 'pending':
+        this.filters.pending = 'all';
+        break;
+      case 'monitor':
+        this.filters.monitor = 'all';
+        break;
+      case 'ignored':
+        this.filters.ignored = 'not-ignored';
+        break;
+      case 'taken':
+        this.filters.taken = 'all';
+        break;
+    }
+    this.renderFilterBadges();
+    this.filterDependencyList();
   }
 
   /**
@@ -712,6 +890,49 @@ function injectDependencyManagerStyles() {
 
     .dep-search-box {
       width: 100%;
+    }
+
+    /* Filter badges styling (reused from list view) */
+    .dep-filter-badges.filter-badges {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      min-height: 24px;
+      align-items: center;
+    }
+
+    .filter-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: #667eea;
+      color: white;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .filter-badge-remove {
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1;
+      opacity: 0.8;
+    }
+
+    .filter-badge-remove:hover {
+      opacity: 1;
+    }
+
+    .filter-badges-empty {
+      color: var(--text-secondary);
+      font-size: 13px;
+      font-style: italic;
     }
 
     /* Section styling */
