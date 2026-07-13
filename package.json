@@ -1,6 +1,6 @@
 {
   "name": "sparkle",
-  "version": "1.0.346",
+  "version": "1.1.0",
   "private": true,
   "description": "A system to keep track of all the details using git as storage (development/build tree)",
   "type": "module",
