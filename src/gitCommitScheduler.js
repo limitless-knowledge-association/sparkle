@@ -1,65 +1,84 @@
 /**
  * Copyright 2025 Limitless Knowledge Association. Open sourced under MIT license.
  *
- * Git Commit Scheduler - Debounced timer for batching git operations
+ * Git Commit Scheduler
  *
- * When event files are written, they call scheduleOutboundGit() which sets
- * a 5-second timer. If more events are written, the timer resets. When the
- * timer expires, it triggers a commit+fetch+push cycle.
+ * Single outbound-git policy, shared by every mutation in the daemon:
+ *   - COMMIT immediately (local, always safe, works offline). The mutation is durable
+ *     the moment scheduleOutboundGit() resolves, so callers that await it "block until
+ *     commit" without ever blocking on the network.
+ *   - PUSH is debounced (~5s) and best-effort. Rapid mutations coalesce into one push;
+ *     an offline/failed push is non-fatal and retried later.
  */
 
-let outboundGitTimer = null;
-let schedulerCallback = null;
+let pushTimer = null;
+let commitCallback = null;
+let pushCallback = null;
+
+const PUSH_DEBOUNCE_MS = 5000;
 
 /**
- * Set the callback function to execute when timer expires
- * Called by sparkle_agent.js during initialization
- * @param {Function} callback - async function to perform git operations
+ * Set the immediate-commit callback (async). Called synchronously (awaited) on every
+ * mutation before the push is scheduled.
+ * @param {Function} callback
  */
-export function setSchedulerCallback(callback) {
-  schedulerCallback = callback;
+export function setCommitCallback(callback) {
+  commitCallback = callback;
 }
 
 /**
- * Schedule a git commit operation (debounced to 5 seconds)
- * Resets timer if already scheduled
- * Called by event files after writing
+ * Set the debounced-push callback (async). Called after the debounce window elapses.
+ * @param {Function} callback
+ */
+export function setPushCallback(callback) {
+  pushCallback = callback;
+}
+
+/**
+ * Commit the just-written change immediately, then (re)arm the debounced push.
+ * Called by the facade after every mutation. Awaiting this awaits the commit only.
  */
 export async function scheduleOutboundGit() {
-  // Clear existing timer if present
-  if (outboundGitTimer) {
-    clearTimeout(outboundGitTimer);
+  // 1) Commit now — local and safe. Never let a commit failure escape to the caller;
+  //    the mutation's files are already on disk regardless.
+  if (commitCallback) {
+    try {
+      await commitCallback();
+    } catch (error) {
+      console.error('[gitCommitScheduler] Immediate commit failed:', error);
+    }
   }
 
-  // Set new 5-second timer
-  outboundGitTimer = setTimeout(async () => {
-    outboundGitTimer = null;
-
-    if (schedulerCallback) {
+  // 2) Debounce the push so rapid mutations coalesce into a single best-effort push.
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+  }
+  pushTimer = setTimeout(async () => {
+    pushTimer = null;
+    if (pushCallback) {
       try {
-        await schedulerCallback();
+        await pushCallback();
       } catch (error) {
-        console.error('Git scheduler callback failed:', error);
+        console.error('[gitCommitScheduler] Debounced push failed:', error);
       }
     }
-  }, 5000);
+  }, PUSH_DEBOUNCE_MS);
 }
 
 /**
- * Check if git operation is currently scheduled
+ * Whether a push is currently pending (debounce timer armed).
  * @returns {boolean}
  */
-export function isGitScheduled() {
-  return outboundGitTimer !== null;
+export function isPushScheduled() {
+  return pushTimer !== null;
 }
 
 /**
- * Cancel any pending git operation
- * Used during shutdown or testing
+ * Cancel any pending push. Used during shutdown or testing.
  */
-export function cancelScheduledGit() {
-  if (outboundGitTimer) {
-    clearTimeout(outboundGitTimer);
-    outboundGitTimer = null;
+export function cancelScheduledPush() {
+  if (pushTimer) {
+    clearTimeout(pushTimer);
+    pushTimer = null;
   }
 }

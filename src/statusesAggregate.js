@@ -9,11 +9,10 @@ import { fileExists, readJsonFile, writeJsonFile } from './fileUtils.js';
 
 /**
  * Rebuild the statuses aggregate from all status event files
- * @param {string} baseDirectory - Base directory (git root)
+ * @param {string} dataDir - Sparkle data directory (the sparkle-data dir itself)
  * @returns {Promise<Array<string>>} Array of custom statuses (excluding 'incomplete' and 'completed')
  */
-export async function rebuildStatusesAggregate(baseDirectory) {
-  const dataDir = join(baseDirectory, '.sparkle-worktree', 'sparkle-data');
+export async function rebuildStatusesAggregate(dataDir) {
   const aggregatesDir = join(dataDir, '.aggregates');
   const aggregatePath = join(aggregatesDir, 'statuses.json');
 

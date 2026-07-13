@@ -15,9 +15,8 @@ import * as dependencyEvent from '../events/dependency.js';
  * @param {string} itemNeeding - Item that needs another
  * @param {string} itemNeeded - Item that is needed
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function addDependency(baseDirectory, itemNeeding, itemNeeded, aggregateModel = null, gitOps = null) {
+export async function addDependency(baseDirectory, itemNeeding, itemNeeded, aggregateModel = null) {
   // Verify both items exist
   await getItemDetails(baseDirectory, itemNeeding);
   await getItemDetails(baseDirectory, itemNeeded);
@@ -48,10 +47,6 @@ export async function addDependency(baseDirectory, itemNeeding, itemNeeded, aggr
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }
 
 /**
@@ -60,9 +55,8 @@ export async function addDependency(baseDirectory, itemNeeding, itemNeeded, aggr
  * @param {string} itemNeeding - Item that needs another
  * @param {string} itemNeeded - Item that is needed
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function removeDependency(baseDirectory, itemNeeding, itemNeeded, aggregateModel = null, gitOps = null) {
+export async function removeDependency(baseDirectory, itemNeeding, itemNeeded, aggregateModel = null) {
   // Verify both items exist
   await getItemDetails(baseDirectory, itemNeeding);
   await getItemDetails(baseDirectory, itemNeeded);
@@ -88,8 +82,4 @@ export async function removeDependency(baseDirectory, itemNeeding, itemNeeded, a
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }

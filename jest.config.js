@@ -8,6 +8,12 @@ export default {
   testEnvironment: 'node',
   transform: {},
 
+  // Build the test tarball (from the working tree) once before the whole run.
+  globalSetup: '<rootDir>/tests/globalSetup.js',
+
+  // Destroy any test daemons left running under .integration_testing after the run.
+  globalTeardown: '<rootDir>/tests/globalTeardown.js',
+
   // Run tests in parallel, but limit integration tests
   projects: [
     {

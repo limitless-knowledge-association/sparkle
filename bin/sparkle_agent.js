@@ -33,7 +33,7 @@ import {
 } from '../src/gitBranchOps.js';
 import { getGitUser } from '../src/gitUtils.js';
 import { openBrowser } from '../src/browserLauncher.js';
-import { setSchedulerCallback, isGitScheduled } from '../src/gitCommitScheduler.js';
+import { setCommitCallback, setPushCallback, isPushScheduled } from '../src/gitCommitScheduler.js';
 import { GitOperations } from '../src/GitOperations.js';
 import { HEARTBEAT_INTERVAL_MS } from '../src/heartbeat-config.js';
 
@@ -592,21 +592,29 @@ async function setupSparkleEnvironment() {
     }
   });
 
-  // Register git scheduler callback to use GitOperations
-  setSchedulerCallback(async () => {
-    try {
-      await gitOps.commitAndPush();
-    } catch (error) {
-      console.error('Git scheduler callback failed:', error);
-    }
+  // Single outbound-git policy: commit immediately (local, safe), push debounced (best-effort).
+  setCommitCallback(async () => {
+    await gitOps.commit();
   });
+  setPushCallback(async () => {
+    await gitOps.syncAndPush();
+  });
+
+  // Startup reconciliation: best-effort pull + push to flush any commits stranded while
+  // offline in a previous session and pick up remote changes. Non-fatal — the daemon must
+  // start even if we're still offline.
+  try {
+    await gitOps.syncAndPush();
+  } catch (error) {
+    console.log(`[startup] Reconciliation deferred: ${error.message}`);
+  }
 
   // Rebuild system aggregates (statuses, takers)
   console.log('Rebuilding system aggregates...');
   const { rebuildStatusesAggregate } = await import('../src/statusesAggregate.js');
   const { rebuildTakersAggregate } = await import('../src/takersAggregate.js');
-  await rebuildStatusesAggregate(gitRoot);
-  await rebuildTakersAggregate(gitRoot);
+  await rebuildStatusesAggregate(sparkleDataPath);
+  await rebuildTakersAggregate(sparkleDataPath);
   console.log('System aggregates rebuilt');
 
   // Validate aggregates on startup
@@ -1143,13 +1151,13 @@ async function handleRequest(req, res) {
     }
 
     if (path === '/api/fetch' && req.method === 'POST') {
-      // Check if git commit is scheduled
-      if (isGitScheduled()) {
-        // Defer - will be handled when timer expires
+      // Defer an explicit fetch while a push is pending; the debounced push does its own
+      // fetch/merge, so it will bring remote changes in shortly.
+      if (isPushScheduled()) {
         sendJSON(res, 200, {
           success: true,
           deferred: true,
-          message: 'Fetch deferred - pending commit will trigger it'
+          message: 'Fetch deferred - pending push will fetch/merge'
         });
         return;
       }

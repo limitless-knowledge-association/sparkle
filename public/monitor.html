@@ -201,6 +201,7 @@
 
     // Configuration settings instance
     const configSettings = new ConfigurationSettings();
+    window.configSettings = configSettings; // used by the shared Configuration modal
 
     // Inject common CSS
     document.getElementById('injected-common-css').textContent = getCommonCSS();

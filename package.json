@@ -1,9 +1,9 @@
 {
   "name": "sparkle",
   "version": "1.0.346",
-  "description": "A system to keep track of all the details using git as storage",
+  "private": true,
+  "description": "A system to keep track of all the details using git as storage (development/build tree)",
   "type": "module",
-  "main": "src/sparkle.js",
   "scripts": {
     "pretest": "node bin/pretest-check.js && rm -rf .integration_testing",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
@@ -14,39 +14,18 @@
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch --selectProjects unit",
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:cleanup": "rm -rf .integration_testing",
+    "pretest:all": "rm -rf .integration_testing",
+    "test:all": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "pack:test": "node bin/prepare-test-distribution.js",
     "release": "npm version patch && npm run pack",
     "release:minor": "npm version minor && npm run pack",
     "release:major": "npm version major && npm run pack",
     "release:rebuild": "npm run pack",
-    "pack": "node bin/prepare-distribution.js",
-    "postinstall": "node bin/postinstall.js"
+    "pack": "node bin/prepare-distribution.js"
   },
-  "keywords": [
-    "tracking",
-    "dependencies",
-    "git",
-    "daemon",
-    "collaboration"
-  ],
-  "author": "Limitless Knowledge Association",
   "license": "MIT",
-  "copyright": "Copyright 2025 Limitless Knowledge Association. Open sourced under MIT license.",
-  "files": [
-    "src/",
-    "bin/",
-    "public/",
-    "README.md",
-    "overview.md",
-    "README2.md",
-    "PHASE2_GUIDE.md",
-    "LICENSE"
-  ],
   "devDependencies": {
     "jest": "^29.7.0",
-    "sparkle": "file:sparkle-1.0.176.tgz"
-  },
-  "sparkle_config": {
-    "git_branch": "sparkle-branch",
-    "directory": "sparkle-data"
+    "playwright": "^1.61.1"
   }
 }

@@ -18,10 +18,9 @@ import * as entryController from './entryController.js';
  * @param {string} [status='incomplete'] - Initial status
  * @param {string} [initialEntry] - Optional initial entry text
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  * @returns {Promise<string>} Item ID
  */
-export async function createItem(baseDirectory, tagline, status = 'incomplete', initialEntry, aggregateModel = null, gitOps = null) {
+export async function createItem(baseDirectory, tagline, status = 'incomplete', initialEntry, aggregateModel = null) {
   if (!tagline || tagline.trim().length === 0) {
     throw new Error('Tagline cannot be empty or whitespace');
   }
@@ -53,14 +52,9 @@ export async function createItem(baseDirectory, tagline, status = 'incomplete', 
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
-
   // Add initial entry if provided
   if (initialEntry && initialEntry.trim().length > 0) {
-    await entryController.addEntry(baseDirectory, itemId, initialEntry.trim(), aggregateModel, gitOps);
+    await entryController.addEntry(baseDirectory, itemId, initialEntry.trim(), aggregateModel);
   }
 
   return itemId;

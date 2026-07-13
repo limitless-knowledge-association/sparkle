@@ -9,14 +9,42 @@ import http from 'http';
 import { EventEmitter } from 'events';
 
 /**
- * Make HTTP API request to daemon
+ * Make an HTTP API request to the daemon, transparently waiting out the daemon's
+ * startup aggregate rebuild. Read endpoints return `503 {rebuilding:true}` while the
+ * daemon is rebuilding aggregates; rather than failing (as an AI/script would see it),
+ * we retry briefly until the rebuild completes. Non-rebuild errors propagate immediately.
+ *
  * @param {number} port - Daemon port
  * @param {string} path - API path
  * @param {string} method - HTTP method
  * @param {Object} body - Request body (optional)
  * @returns {Promise<Object>} Response data
  */
-export function makeApiRequest(port, path, method = 'GET', body = null) {
+export async function makeApiRequest(port, path, method = 'GET', body = null) {
+  const maxAttempts = 60; // ~30s ceiling for a slow rebuild
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await makeApiRequestOnce(port, path, method, body);
+    } catch (error) {
+      const isRebuild = /HTTP 503/.test(error.message) && /rebuild/i.test(error.message);
+      if (isRebuild && attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+/**
+ * Single (non-retrying) HTTP request to the daemon.
+ * @param {number} port - Daemon port
+ * @param {string} path - API path
+ * @param {string} method - HTTP method
+ * @param {Object} body - Request body (optional)
+ * @returns {Promise<Object>} Response data
+ */
+function makeApiRequestOnce(port, path, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'localhost',

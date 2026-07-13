@@ -15,9 +15,8 @@ import { addTakerToAggregate } from '../takersAggregate.js';
  * @param {string} baseDirectory - Base directory for sparkle data
  * @param {string} itemId - Item identifier
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function takeItem(baseDirectory, itemId, aggregateModel = null, gitOps = null) {
+export async function takeItem(baseDirectory, itemId, aggregateModel = null) {
   // Verify item exists
   const details = await getItemDetails(baseDirectory, itemId);
 
@@ -48,10 +47,6 @@ export async function takeItem(baseDirectory, itemId, aggregateModel = null, git
     // Don't fail the take operation if aggregate update fails
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }
 
 /**
@@ -60,9 +55,8 @@ export async function takeItem(baseDirectory, itemId, aggregateModel = null, git
  * @param {string} baseDirectory - Base directory for sparkle data
  * @param {string} itemId - Item identifier
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function surrenderItem(baseDirectory, itemId, aggregateModel = null, gitOps = null) {
+export async function surrenderItem(baseDirectory, itemId, aggregateModel = null) {
   // Verify item exists
   const details = await getItemDetails(baseDirectory, itemId);
 
@@ -85,8 +79,4 @@ export async function surrenderItem(baseDirectory, itemId, aggregateModel = null
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }

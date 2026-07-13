@@ -1,0 +1,36 @@
+{
+  "name": "sparkle",
+  "description": "A system to keep track of all the details using git as storage",
+  "type": "module",
+  "main": "src/sparkle.js",
+  "bin": {
+    "sparkle-no-daemon": "./bin/sparkle_agent.js",
+    "sparkle-daemon": "./bin/sparkle_daemon_launch.js",
+    "sparkle-halt": "./bin/sparkle_halt.js",
+    "sparkle": "./bin/sparkle.js",
+    "recover-sparkle": "./bin/recover-sparkle.js"
+  },
+  "scripts": {
+    "postinstall": "node bin/postinstall.js"
+  },
+  "keywords": [
+    "tracking",
+    "dependencies",
+    "git",
+    "daemon",
+    "collaboration"
+  ],
+  "author": "Limitless Knowledge Association",
+  "license": "MIT",
+  "copyright": "Copyright 2025 Limitless Knowledge Association. Open sourced under MIT license.",
+  "files": [
+    "src/",
+    "bin/",
+    "public/",
+    "README.md",
+    "overview.md",
+    "README2.md",
+    "PHASE2_GUIDE.md",
+    "LICENSE"
+  ]
+}

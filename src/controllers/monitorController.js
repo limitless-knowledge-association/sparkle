@@ -14,9 +14,8 @@ import * as monitorEvent from '../events/monitor.js';
  * @param {string} baseDirectory - Base directory for sparkle data
  * @param {string} itemId - Item identifier
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function addMonitor(baseDirectory, itemId, aggregateModel = null, gitOps = null) {
+export async function addMonitor(baseDirectory, itemId, aggregateModel = null) {
   // Verify item exists
   await getItemDetails(baseDirectory, itemId);
 
@@ -65,10 +64,6 @@ export async function addMonitor(baseDirectory, itemId, aggregateModel = null, g
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }
 
 /**
@@ -76,9 +71,8 @@ export async function addMonitor(baseDirectory, itemId, aggregateModel = null, g
  * @param {string} baseDirectory - Base directory for sparkle data
  * @param {string} itemId - Item identifier
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function removeMonitor(baseDirectory, itemId, aggregateModel = null, gitOps = null) {
+export async function removeMonitor(baseDirectory, itemId, aggregateModel = null) {
   // Verify item exists
   await getItemDetails(baseDirectory, itemId);
 
@@ -129,8 +123,4 @@ export async function removeMonitor(baseDirectory, itemId, aggregateModel = null
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }

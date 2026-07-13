@@ -22,9 +22,8 @@ export class GitOperations {
     // Callback for commit completion (daemon SSE broadcasts)
     this.commitCompleteCallback = null;
 
-    // Debounced commit scheduling
-    this.commitTimer = null;
-    this.pendingFiles = new Set();
+    // Serializes git operations so concurrent mutations never race on index.lock.
+    this._gitChain = Promise.resolve();
   }
 
   /**
@@ -59,231 +58,165 @@ export class GitOperations {
   }
 
   /**
-   * Notify that a file was created locally (schedules commit)
-   * @param {string} filename - Event filename that was created
-   */
-  notifyFileCreated(filename) {
-    this.pendingFiles.add(filename);
-    this._scheduleCommit();
-  }
-
-  /**
-   * Schedule a commit (debounced to 5 seconds)
+   * Run a git task after all previously-queued git tasks settle, so concurrent
+   * mutations never overlap `git add`/`commit`/`push` (which would collide on
+   * index.lock). The returned promise reflects this task's own outcome; the internal
+   * chain continues regardless of success/failure.
    * @private
    */
-  _scheduleCommit() {
-    // Clear existing timer
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
+  _serialize(task) {
+    const result = this._gitChain.then(() => task(), () => task());
+    this._gitChain = result.then(() => {}, () => {});
+    return result;
+  }
+
+  /**
+   * Commit staged sparkle-data changes to the local branch.
+   *
+   * This is a purely LOCAL operation: no fetch/pull/push, so it cannot fail because
+   * the machine is offline. It is the always-safe, immediate unit of durability —
+   * every mutation commits right away; pushing is a separate, best-effort concern.
+   *
+   * @returns {Promise<{committed: boolean, sha?: string}>}
+   */
+  async commit() {
+    return this._serialize(() => this._commitLocal());
+  }
+
+  /** @private */
+  async _commitLocal() {
+    // Stage item files. The pathspec is relative to baseDirectory, which MUST be the
+    // worktree root (the daemon always constructs GitOperations that way).
+    try {
+      await execAsync('git add sparkle-data/*.json', { cwd: this.baseDirectory });
+    } catch (addError) {
+      // No matching files to stage yet — fall through; the diff check handles it.
     }
 
-    // Set new 5-second timer
-    this.commitTimer = setTimeout(async () => {
-      this.commitTimer = null;
-
-      try {
-        await this.commitAndPush();
-      } catch (error) {
-        console.error('[GitOperations] Commit and push failed:', error);
-      }
-    }, 5000);
-  }
-
-  /**
-   * Cancel any pending commit
-   */
-  cancelPendingCommit() {
-    if (this.commitTimer) {
-      clearTimeout(this.commitTimer);
-      this.commitTimer = null;
+    // Nothing staged -> nothing to commit.
+    try {
+      await execAsync('git diff --cached --quiet', { cwd: this.baseDirectory });
+      return { committed: false };
+    } catch {
+      // Staged changes present -> commit.
     }
+
+    const timestamp = new Date().toISOString();
+    await execAsync(`git commit -m "Auto-commit: ${timestamp}"`, { cwd: this.baseDirectory });
+    const { stdout: sha } = await execAsync('git rev-parse HEAD', { cwd: this.baseDirectory });
+    console.log(`[GitOperations] Local commit ${sha.trim()}`);
+    return { committed: true, sha: sha.trim() };
   }
 
   /**
-   * Force immediate commit and push, canceling any pending debounced commit
-   * Use this in tests or when you need to ensure changes are pushed immediately
-   * @returns {Promise<boolean>} True if successful
+   * Push local commits to origin. BEST-EFFORT and NON-THROWING.
+   *
+   * Fetches + merges remote first (incorporating others' commits) then pushes with a
+   * bounded retry loop. Any failure — offline, unreachable remote, exhausted retries —
+   * is logged and reported via onCommitComplete, but never thrown: the local commit is
+   * already durable, and the push is retried later (debounce, or the next daemon start).
+   *
+   * Also used for startup reconciliation: it pulls remote changes and flushes any
+   * commits that were stranded while offline.
+   *
+   * @returns {Promise<{pushed: boolean, error?: string}>}
    */
-  async forcePushNow() {
-    // Cancel the debounce timer
-    this.cancelPendingCommit();
-
-    // Immediately commit and push
-    return await this.commitAndPush();
+  async syncAndPush() {
+    return this._serialize(() => this._syncAndPushInner());
   }
 
-  /**
-   * Commit and push local changes with retry logic
-   * Migrated from sparkle_agent.js performCommitAndFetch()
-   * @returns {Promise<boolean>} True if successful
-   */
-  async commitAndPush() {
+  /** @private */
+  async _syncAndPushInner() {
     const maxRetries = 5;
     const startTime = Date.now();
 
-    try {
-      // STEP 1: Fetch first to get latest remote state
-      console.log('[GitOperations] Fetching latest changes...');
-      await execAsync('git fetch origin', { cwd: this.baseDirectory });
-
-      // STEP 2: Pull/merge any remote changes
-      let pulledFiles = [];
-      try {
-        const { stdout } = await execAsync('git pull --no-edit --stat', { cwd: this.baseDirectory });
-        console.log('[GitOperations] Merged remote changes');
-
-        // Parse changed files from pull output
-        pulledFiles = this._parseChangedFiles(stdout);
-
-        if (pulledFiles.length > 0) {
-          console.log(`[GitOperations] Pull detected ${pulledFiles.length} changed files`);
-          // Notify callbacks about pulled files
-          this._notifyFilesPulled(pulledFiles);
-        }
-      } catch (pullError) {
-        // Pull might fail if there are uncommitted changes - that's ok
-        console.log('[GitOperations] Pull skipped (uncommitted changes present)');
-      }
-
-      // STEP 3: Stage all JSON files in sparkle-data directory (if any exist)
-      try {
-        const { stdout: addOutput } = await execAsync('git add sparkle-data/*.json', { cwd: this.baseDirectory });
-        // List what was actually staged
-        const { stdout: stagedFiles } = await execAsync('git diff --cached --name-only', { cwd: this.baseDirectory });
-        if (stagedFiles.trim()) {
-          const fileList = stagedFiles.trim().split('\n');
-          console.log(`[GitOperations] Staged ${fileList.length} file(s): ${fileList.join(', ')}`);
-        }
-      } catch (addError) {
-        // No .json files to add - that's ok, might just be pulling
-        console.log('[GitOperations] No item files to stage');
-      }
-
-      // STEP 4: Check if there are changes to commit
-      try {
-        await execAsync('git diff --cached --quiet', { cwd: this.baseDirectory });
-        console.log('[GitOperations] No changes to commit');
-        this.pendingFiles.clear();
-        return true;
-      } catch {
-        // Has changes, continue to commit
-      }
-
-      // STEP 5: Commit locally
-      const timestamp = new Date().toISOString();
-      const { stdout: commitOutput } = await execAsync(`git commit -m "Auto-commit: ${timestamp}"`, { cwd: this.baseDirectory });
-      console.log('[GitOperations] Local commit created');
-
-      // Log commit details
-      const { stdout: commitSha } = await execAsync('git rev-parse HEAD', { cwd: this.baseDirectory });
-      console.log(`[GitOperations] Commit SHA: ${commitSha.trim()}`);
-
-      // TEST HOOK: Allow tests to block push for race condition testing
-      if (process.env.SPARKLE_TEST_BLOCK_PUSH === 'true') {
-        const testIdMatch = process.argv.find(arg => arg.startsWith('--test-id='));
-        if (testIdMatch) {
-          const testId = testIdMatch.split('=')[1];
-          const blockFile = `/tmp/sparkle-push-block-${testId}`;
-
-          // Dynamic import to avoid issues in non-test environments
-          const { existsSync } = await import('fs');
-
-          if (existsSync(blockFile)) {
-            console.log(`🧪 [GitOperations] TEST HOOK: Blocking push until ${blockFile} is removed`);
-            while (existsSync(blockFile)) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            console.log('🧪 [GitOperations] TEST HOOK: Push unblocked, proceeding');
+    // TEST HOOK: allow tests to block the push (race-condition / offline simulation).
+    if (process.env.SPARKLE_TEST_BLOCK_PUSH === 'true') {
+      const testIdMatch = process.argv.find(arg => arg.startsWith('--test-id='));
+      if (testIdMatch) {
+        const testId = testIdMatch.split('=')[1];
+        const blockFile = `/tmp/sparkle-push-block-${testId}`;
+        const { existsSync } = await import('fs');
+        if (existsSync(blockFile)) {
+          console.log(`🧪 [GitOperations] TEST HOOK: Blocking push until ${blockFile} is removed`);
+          while (existsSync(blockFile)) {
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
+          console.log('🧪 [GitOperations] TEST HOOK: Push unblocked, proceeding');
         }
       }
-
-      // STEP 6: Push with retry loop for conflicts
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          console.log(`[GitOperations] Attempting push (${attempt + 1}/${maxRetries})...`);
-          const { stdout: pushOutput } = await execAsync('git push origin HEAD', { cwd: this.baseDirectory });
-
-          // Push succeeded!
-          const duration = Date.now() - startTime;
-          console.log(`[GitOperations] Push successful (${duration}ms)`);
-
-          // Log what was pushed (split for Windows compatibility)
-          const { stdout: currentBranch } = await execAsync('git rev-parse --abbrev-ref HEAD', { cwd: this.baseDirectory });
-          const { stdout: remoteSha } = await execAsync(`git rev-parse origin/${currentBranch.trim()}`, { cwd: this.baseDirectory });
-          console.log(`[GitOperations] Remote now at: ${remoteSha.trim()}`);
-
-          this.pendingFiles.clear();
-
-          // Get current SHA and notify completion callback
-          if (this.commitCompleteCallback) {
-            try {
-              const { stdout } = await execAsync('git rev-parse HEAD', { cwd: this.baseDirectory });
-              const sha = stdout.trim();
-              this.commitCompleteCallback({ success: true, sha });
-            } catch (error) {
-              // If we can't get SHA, still report success but without SHA
-              this.commitCompleteCallback({ success: true });
-            }
-          }
-
-          return true;
-
-        } catch (pushError) {
-          console.log(`[GitOperations] Push failed (attempt ${attempt + 1}): ${pushError.message}`);
-
-          if (attempt < maxRetries - 1) {
-            // Fetch latest and merge with ORT strategy
-            console.log('[GitOperations] Fetching and merging remote changes...');
-
-            try {
-              await execAsync('git fetch origin', { cwd: this.baseDirectory });
-
-              // Use --no-rebase to force ORT merge
-              const { stdout } = await execAsync('git pull --no-rebase --no-edit --stat', {
-                cwd: this.baseDirectory
-              });
-
-              console.log('[GitOperations] Merged remote changes, retrying push...');
-
-              // Parse and notify about files from merge
-              const mergedFiles = this._parseChangedFiles(stdout);
-              if (mergedFiles.length > 0) {
-                console.log(`[GitOperations] Merge brought ${mergedFiles.length} changed files`);
-                this._notifyFilesPulled(mergedFiles);
-              }
-
-            } catch (mergeError) {
-              console.error('[GitOperations] Merge failed:', mergeError.message);
-
-              if (attempt === maxRetries - 1) {
-                throw new Error(`Merge conflict after ${maxRetries} attempts`);
-              }
-            }
-
-            // Exponential backoff before retry
-            const backoffMs = Math.pow(2, attempt) * 1000;
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-          } else {
-            throw pushError;
-          }
-        }
-      }
-
-      return false;
-
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      console.error(`[GitOperations] Commit and push failed after ${duration}ms:`, error.message);
-
-      // Notify completion callback of failure
-      if (this.commitCompleteCallback) {
-        this.commitCompleteCallback({ success: false, error: error.message });
-      }
-
-      throw error;
     }
+
+    // Fetch + merge remote so our push is a fast-forward when possible.
+    // Offline / nothing-to-pull is fine — proceed to attempt the push regardless.
+    await this._fetchAndMerge();
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await execAsync('git push origin HEAD', { cwd: this.baseDirectory });
+
+        const { stdout: sha } = await execAsync('git rev-parse HEAD', { cwd: this.baseDirectory });
+        console.log(`[GitOperations] Push successful (${Date.now() - startTime}ms), remote at ${sha.trim()}`);
+        if (this.commitCompleteCallback) {
+          this.commitCompleteCallback({ success: true, sha: sha.trim() });
+        }
+        return { pushed: true };
+
+      } catch (pushError) {
+        console.log(`[GitOperations] Push failed (attempt ${attempt + 1}/${maxRetries}): ${pushError.message}`);
+        if (attempt < maxRetries - 1) {
+          // A non-fast-forward can often be resolved by merging remote and retrying.
+          // If the remote is unreachable (offline), stop retrying — push is deferred.
+          const reachable = await this._fetchAndMerge();
+          if (!reachable) break;
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+        }
+      }
+    }
+
+    // Push did not complete. Best-effort: report and return; do NOT throw. The commit
+    // is safe locally and will be pushed on the next mutation/debounce or daemon start.
+    console.warn('[GitOperations] Push deferred (remote unreachable or conflicts); will retry later');
+    if (this.commitCompleteCallback) {
+      this.commitCompleteCallback({ success: false, error: 'push deferred' });
+    }
+    return { pushed: false, error: 'push deferred' };
   }
+
+  /**
+   * Fetch and merge remote changes (ORT, no rebase). Returns true if the remote was
+   * reachable, false if it appears we are offline. Never throws.
+   * @private
+   */
+  async _fetchAndMerge() {
+    try {
+      await execAsync('git fetch origin', { cwd: this.baseDirectory });
+    } catch {
+      return false; // remote unreachable -> offline
+    }
+    try {
+      const { stdout } = await execAsync('git pull --no-rebase --no-edit --stat', { cwd: this.baseDirectory });
+      const merged = this._parseChangedFiles(stdout);
+      if (merged.length > 0) {
+        console.log(`[GitOperations] Merged ${merged.length} remote change(s)`);
+        this._notifyFilesPulled(merged);
+      }
+    } catch {
+      // Merge conflict or nothing to merge; caller's push attempt will surface real issues.
+    }
+    return true;
+  }
+
+  /**
+   * Convenience composition of the single git path: commit locally, then push.
+   * Contains no independent logic of its own.
+   * @returns {Promise<{pushed: boolean, error?: string}>}
+   */
+  async commitAndPush() {
+    await this.commit();
+    return this.syncAndPush();
+  }
+
 
   /**
    * Parse git pull/fetch output to extract list of changed files

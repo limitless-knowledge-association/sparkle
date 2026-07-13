@@ -13,9 +13,8 @@ import * as entryEvent from '../events/entry.js';
  * @param {string} itemId - Item identifier
  * @param {string} text - Entry text
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function addEntry(baseDirectory, itemId, text, aggregateModel = null, gitOps = null) {
+export async function addEntry(baseDirectory, itemId, text, aggregateModel = null) {
   // Verify item exists
   await getItemDetails(baseDirectory, itemId);
 
@@ -30,8 +29,4 @@ export async function addEntry(baseDirectory, itemId, text, aggregateModel = nul
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }

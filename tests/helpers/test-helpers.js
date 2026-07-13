@@ -5,7 +5,7 @@
  * Utilities for creating isolated test environments with bare repos and clones
  */
 
-import { mkdtemp, rm, writeFile, readFile, mkdir } from 'fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir, readdir } from 'fs/promises';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -22,6 +22,12 @@ const execAsync = promisify(exec);
  * @returns {Promise<string>} Path to tarball
  */
 export async function getTarballPath() {
+  // Prefer the working-tree test tarball (built by globalSetup) so tests exercise
+  // uncommitted changes. Fall back to the version-named release tarball.
+  const testTarball = join(process.cwd(), 'sparkle-0.0.0-test.tgz');
+  if (existsSync(testTarball)) {
+    return testTarball;
+  }
   const packageJsonPath = join(process.cwd(), 'package.json');
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
   const version = packageJson.version;
@@ -448,6 +454,77 @@ export async function stopDaemon(port) {
     await sleep(2000);
   } catch (error) {
     // Daemon may already be stopped
+  }
+}
+
+/**
+ * Send a best-effort shutdown to a daemon with a short timeout (for teardown).
+ * @param {number} port
+ */
+function shutdownPort(port) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { hostname: 'localhost', port, path: '/api/shutdown', method: 'POST', headers: { 'Content-Length': 2 } },
+      (res) => { res.on('data', () => {}); res.on('end', () => resolve(true)); }
+    );
+    req.on('error', () => resolve(false));
+    req.setTimeout(1500, () => { req.destroy(); resolve(false); });
+    req.write('{}');
+    req.end();
+  });
+}
+
+/**
+ * Destroy every test daemon whose files/args live under `rootDir`.
+ *
+ * Used by jest globalTeardown (suite-wide safety net) and by individual test files
+ * so daemons are destroyed as soon as they are no longer needed. Two passes:
+ *   1) Graceful: POST /api/shutdown to every daemon we can find a port file for.
+ *   2) Fallback (POSIX): SIGKILL any sparkle_agent process whose command line
+ *      references rootDir — catches daemons whose port file was already removed.
+ * Only ever targets processes rooted under rootDir (never production daemons).
+ *
+ * @param {string} rootDir - Absolute path (typically <cwd>/.integration_testing)
+ */
+export async function stopAllDaemonsUnder(rootDir) {
+  if (!existsSync(rootDir)) return;
+
+  // Pass 1: graceful shutdown via discovered port files.
+  const portFiles = [];
+  const walk = async (dir) => {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full);
+      } else if (e.name === 'last_port.data') {
+        portFiles.push(full);
+      }
+    }
+  };
+  await walk(rootDir);
+
+  for (const pf of portFiles) {
+    try {
+      const port = parseInt((await readFile(pf, 'utf8')).trim(), 10);
+      if (Number.isInteger(port)) await shutdownPort(port);
+    } catch { /* ignore */ }
+  }
+
+  // Pass 2 (POSIX only): force-kill any survivors identified by process args.
+  if (process.platform !== 'win32') {
+    try {
+      const { stdout } = await execAsync('ps -ax -o pid=,command=');
+      for (const line of stdout.split('\n')) {
+        if (line.includes('sparkle_agent') && line.includes(rootDir)) {
+          const pid = parseInt(line.trim().split(/\s+/)[0], 10);
+          if (Number.isInteger(pid)) {
+            try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+          }
+        }
+      }
+    } catch { /* ps unavailable; graceful pass already ran */ }
   }
 }
 

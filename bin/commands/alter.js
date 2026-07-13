@@ -2,9 +2,14 @@
  * Copyright 2025 Limitless Knowledge Association. Open sourced under MIT license.
  *
  * Alter command - Alter item fields (status, monitoring, visibility, responsibility)
+ *
+ * Thin daemon client: the daemon applies the change, commits immediately, and pushes
+ * best-effort in the background.
  */
 
 import { hasJsonFlag, validateItemId, getDataDirectory, parseBoolean } from '../lib/helpers.js';
+import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
+import { makeApiRequest } from '../../src/daemonClient.js';
 
 /**
  * Alter command - Alter item field
@@ -21,10 +26,10 @@ export async function alterCommand(itemId, field, value, location) {
 
   if (!field) {
     if (useJson) {
-      console.log(JSON.stringify({ error: 'Field is required (status, monitoring, visibility, responsibility)' }));
+      console.log(JSON.stringify({ error: 'Field is required (status, monitoring, visibility, responsibility, tagline)' }));
     } else {
       console.error('Error: Field is required');
-      console.error('Valid fields: status, monitoring, visibility, responsibility');
+      console.error('Valid fields: status, monitoring, visibility, responsibility, tagline');
     }
     process.exit(1);
   }
@@ -41,7 +46,7 @@ export async function alterCommand(itemId, field, value, location) {
   const fieldLower = field.toLowerCase();
 
   // Validate field
-  const validFields = ['status', 'monitoring', 'visibility', 'responsibility'];
+  const validFields = ['status', 'monitoring', 'visibility', 'responsibility', 'tagline'];
   if (!validFields.includes(fieldLower)) {
     if (useJson) {
       console.log(JSON.stringify({ error: `Invalid field: ${field}. Must be one of: ${validFields.join(', ')}` }));
@@ -52,112 +57,68 @@ export async function alterCommand(itemId, field, value, location) {
     process.exit(1);
   }
 
-  // Get data directory
-  const dataDir = await getDataDirectory(location);
-
-  // Import Sparkle class
-  const { Sparkle } = await import('../../src/sparkle-class.js');
-
-  // Suppress console.log output to stdout (redirect to stderr for non-JSON mode)
-  const originalConsoleLog = console.log;
-  if (!useJson) {
-    console.log = (...args) => console.error(...args);
-  } else {
-    console.log = () => {}; // Suppress completely in JSON mode
+  // Map the field/value to a daemon endpoint + request body.
+  let endpoint;
+  let body = { itemId };
+  let message;
+  switch (fieldLower) {
+    case 'status':
+      endpoint = '/api/updateStatus';
+      body = { itemId, status: value };
+      message = `Status changed to ${value} for ${itemId}`;
+      break;
+    case 'tagline':
+      endpoint = '/api/updateTagline';
+      body = { itemId, tagline: value };
+      message = `Tagline updated for ${itemId}`;
+      break;
+    case 'monitoring':
+      if (parseBoolean(value)) {
+        endpoint = '/api/addMonitor';
+        message = `Monitoring enabled for ${itemId}`;
+      } else {
+        endpoint = '/api/removeMonitor';
+        message = `Monitoring disabled for ${itemId}`;
+      }
+      break;
+    case 'visibility':
+      if (parseBoolean(value)) {
+        endpoint = '/api/unignoreItem';
+        message = `Visibility set to visible for ${itemId}`;
+      } else {
+        endpoint = '/api/ignoreItem';
+        message = `Visibility set to hidden for ${itemId}`;
+      }
+      break;
+    case 'responsibility':
+      if (parseBoolean(value)) {
+        endpoint = '/api/takeItem';
+        message = `Responsibility taken for ${itemId}`;
+      } else {
+        endpoint = '/api/surrenderItem';
+        message = `Responsibility released for ${itemId}`;
+      }
+      break;
   }
 
-  // Create Sparkle instance and start it
-  const sparkle = new Sparkle(dataDir);
-  await sparkle.start();
+  const dataDir = await getDataDirectory(location);
+  const port = await ensureDaemon(dataDir);
 
   try {
-    let message = '';
-
-    switch (fieldLower) {
-      case 'status': {
-        // Status change - let API validate
-        try {
-          await sparkle.updateStatus(itemId, value);
-          message = `Status changed to ${value} for ${itemId}`;
-        } catch (error) {
-          // Re-throw with original API error message (better than our generic one)
-          throw error;
-        }
-        break;
-      }
-
-      case 'monitoring': {
-        // Monitoring - boolean: yes/true = monitor, no/false = don't monitor
-        const shouldMonitor = parseBoolean(value);
-        if (shouldMonitor) {
-          await sparkle.addMonitor(itemId);
-          message = `Monitoring enabled for ${itemId}`;
-        } else {
-          await sparkle.removeMonitor(itemId);
-          message = `Monitoring disabled for ${itemId}`;
-        }
-        break;
-      }
-
-      case 'visibility': {
-        // Visibility - boolean: yes/true = visible (not ignored), no/false = hidden (ignored)
-        const shouldBeVisible = parseBoolean(value);
-        if (shouldBeVisible) {
-          await sparkle.unignoreItem(itemId);
-          message = `Visibility set to visible for ${itemId}`;
-        } else {
-          await sparkle.ignoreItem(itemId);
-          message = `Visibility set to hidden for ${itemId}`;
-        }
-        break;
-      }
-
-      case 'responsibility': {
-        // Responsibility - boolean: yes/true = take, no/false = surrender (only if currently held)
-        const shouldTake = parseBoolean(value);
-        if (shouldTake) {
-          await sparkle.takeItem(itemId);
-          message = `Responsibility taken for ${itemId}`;
-        } else {
-          // Only surrender if we're the current taker (API handles this idempotently)
-          await sparkle.surrenderItem(itemId);
-          message = `Responsibility released for ${itemId}`;
-        }
-        break;
-      }
-    }
-
-    // Force immediate push
-    await sparkle.gitOps.forcePushNow();
-
-    // Restore console.log before output
-    console.log = originalConsoleLog;
-
-    // Output
-    if (useJson) {
-      console.log(JSON.stringify({
-        itemId,
-        field: fieldLower,
-        value,
-        success: true,
-        message
-      }));
-    } else {
-      console.log(message);
-    }
-
-    // Stop sparkle instance
-    await sparkle.stop();
+    await makeApiRequest(port, endpoint, 'POST', body);
   } catch (error) {
-    console.log = originalConsoleLog;
-    await sparkle.stop();
-
-    // Output error
+    // Surface the daemon's error (e.g. invalid status) with the original message.
     if (useJson) {
       console.log(JSON.stringify({ error: error.message }));
     } else {
       console.error(`Error: ${error.message}`);
     }
     process.exit(1);
+  }
+
+  if (useJson) {
+    console.log(JSON.stringify({ itemId, field: fieldLower, value, success: true, message }));
+  } else {
+    console.log(message);
   }
 }

@@ -14,11 +14,10 @@ import { hashObject } from './nameUtils.js';
 
 /**
  * Rebuild the takers aggregate from all taken event files
- * @param {string} baseDirectory - Base directory (git root)
+ * @param {string} dataDir - Sparkle data directory (the sparkle-data dir itself)
  * @returns {Promise<Array<Object>>} Array of unique takers [{name, email, hash}]
  */
-export async function rebuildTakersAggregate(baseDirectory) {
-  const dataDir = join(baseDirectory, '.sparkle-worktree', 'sparkle-data');
+export async function rebuildTakersAggregate(dataDir) {
   const aggregatesDir = join(dataDir, '.aggregates');
   const aggregatePath = join(aggregatesDir, 'takers.json');
 
@@ -83,12 +82,11 @@ export async function rebuildTakersAggregate(baseDirectory) {
 
 /**
  * Add a taker to the aggregate (incremental update)
- * @param {string} baseDirectory - Base directory (git root)
+ * @param {string} dataDir - Sparkle data directory (the sparkle-data dir itself)
  * @param {Object} person - Person data {name, email}
  * @returns {Promise<Array<Object>>} Updated array of takers
  */
-export async function addTakerToAggregate(baseDirectory, person) {
-  const dataDir = join(baseDirectory, '.sparkle-worktree', 'sparkle-data');
+export async function addTakerToAggregate(dataDir, person) {
   const aggregatesDir = join(dataDir, '.aggregates');
   const aggregatePath = join(aggregatesDir, 'takers.json');
 
@@ -102,7 +100,7 @@ export async function addTakerToAggregate(baseDirectory, person) {
     } catch (error) {
       console.error('Error reading takers aggregate, will rebuild:', error.message);
       // Fall back to full rebuild
-      return await rebuildTakersAggregate(baseDirectory);
+      return await rebuildTakersAggregate(dataDir);
     }
   }
 

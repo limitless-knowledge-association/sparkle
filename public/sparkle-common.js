@@ -413,6 +413,34 @@ export function initializeHeader(options = {}) {
     );
   };
 
+  // Default handlers for the shared header's "Create Item" and "Configuration" buttons so
+  // they work in EVERY view. A view may define its own window.openCreateItemModal /
+  // window.openConfigurationModal before calling initializeHeader() to customize behavior
+  // (e.g. list_view opens the item editor after creation); those take precedence.
+  if (!window.openCreateItemModal) {
+    window.openCreateItemModal = async function() {
+      const { openItemCreator } = await import('./item-creator.js');
+      await openItemCreator((itemId) => {
+        if (typeof window.openItemEditor === 'function') {
+          window.openItemEditor(itemId);
+        }
+      });
+    };
+  }
+  if (!window.openConfigurationModal) {
+    window.openConfigurationModal = async function() {
+      // The configuration modal reads/writes through window.configSettings; ensure one
+      // exists and is initialized even in views that don't set it up themselves.
+      if (!window.configSettings) {
+        const { ConfigurationSettings } = await import('./ConfigurationSettings.js');
+        window.configSettings = new ConfigurationSettings();
+        await window.configSettings.initialize();
+      }
+      const { openConfigurationModal } = await import('./configuration-modal.js');
+      openConfigurationModal();
+    };
+  }
+
   // Add click handler for Update Now button to trigger fetch
   const updateNowBtn = document.getElementById('updateNowBtn');
   if (updateNowBtn) {

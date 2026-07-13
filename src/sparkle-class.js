@@ -14,9 +14,6 @@ import { getItemDetails as utilsGetItemDetails, getAllItemFiles as utilsGetAllIt
 // Aggregate Model
 import { AggregateModel } from './AggregateModel.js';
 
-// Git Operations
-import { GitOperations } from './GitOperations.js';
-
 // Controllers
 import * as itemController from './controllers/itemController.js';
 import * as taglineController from './controllers/taglineController.js';
@@ -40,15 +37,18 @@ import { rebuildTakersAggregate } from './takersAggregate.js';
  */
 export class Sparkle {
   /**
-   * Create a Sparkle instance
+   * Create a Sparkle instance.
+   *
+   * This is an in-process, GIT-FREE data API: it reads and writes sparkle-data event
+   * files directly. It never commits or pushes. All git (commit/push) is owned solely
+   * by the daemon. Used by unit tests and any in-process embedding of the data model.
+   *
    * @param {string} baseDirectory - Base directory for sparkle data (defaults to './sparkle-data')
    * @param {AggregateModel} aggregateModel - Aggregate model instance (optional, will create default if not provided)
-   * @param {GitOperations} gitOps - Git operations instance (optional, will create default if not provided)
    */
-  constructor(baseDirectory = './sparkle-data', aggregateModel = null, gitOps = null) {
+  constructor(baseDirectory = './sparkle-data', aggregateModel = null) {
     this.baseDirectory = baseDirectory;
     this.aggregateModel = aggregateModel || new AggregateModel(baseDirectory);
-    this.gitOps = gitOps || new GitOperations(baseDirectory);
     this.initialized = false;
   }
 
@@ -65,25 +65,14 @@ export class Sparkle {
     await rebuildStatusesAggregate(this.baseDirectory);
     await rebuildTakersAggregate(this.baseDirectory);
 
-    // Wire up git pull callback to invalidate aggregates
-    this.gitOps.onFilesPulled(async (filenames) => {
-      await this.aggregateModel.invalidateAggregatesForFiles(filenames);
-    });
-
     this.initialized = true;
   }
 
   /**
-   * Stop the Sparkle instance and clean up resources
-   * Cancels any pending git operations
+   * Stop the Sparkle instance.
    * @returns {Promise<void>}
    */
   async stop() {
-    // Cancel any pending git commit operations in GitOperations
-    if (this.gitOps) {
-      this.gitOps.cancelPendingCommit();
-    }
-
     this.initialized = false;
   }
 
@@ -113,7 +102,7 @@ export class Sparkle {
    */
   async updateStatuses(statuses) {
     this._ensureInitialized();
-    return await statusController.updateStatusConfiguration(this.baseDirectory, statuses, this.gitOps);
+    return await statusController.updateStatusConfiguration(this.baseDirectory, statuses);
   }
 
   /**
@@ -126,7 +115,7 @@ export class Sparkle {
   async createItem(tagline, status = 'incomplete', initialEntry) {
     this._ensureInitialized();
 
-    const itemId = await itemController.createItem(this.baseDirectory, tagline, status, initialEntry, this.aggregateModel, this.gitOps);
+    const itemId = await itemController.createItem(this.baseDirectory, tagline, status, initialEntry, this.aggregateModel);
 
     return itemId;
   }
@@ -161,7 +150,7 @@ export class Sparkle {
   async alterTagline(itemId, tagline) {
     this._ensureInitialized();
 
-    await taglineController.alterTagline(this.baseDirectory, itemId, tagline, this.aggregateModel, this.gitOps);
+    await taglineController.alterTagline(this.baseDirectory, itemId, tagline, this.aggregateModel);
   }
 
   /**
@@ -172,7 +161,7 @@ export class Sparkle {
   async addEntry(itemId, text) {
     this._ensureInitialized();
 
-    await entryController.addEntry(this.baseDirectory, itemId, text, this.aggregateModel, this.gitOps);
+    await entryController.addEntry(this.baseDirectory, itemId, text, this.aggregateModel);
   }
 
   /**
@@ -184,7 +173,7 @@ export class Sparkle {
   async updateStatus(itemId, status, text = '') {
     this._ensureInitialized();
 
-    await statusController.updateStatus(this.baseDirectory, itemId, status, text, this.aggregateModel, this.gitOps);
+    await statusController.updateStatus(this.baseDirectory, itemId, status, text, this.aggregateModel);
   }
 
   /**
@@ -195,7 +184,7 @@ export class Sparkle {
   async addDependency(itemNeeding, itemNeeded) {
     this._ensureInitialized();
 
-    await dependencyController.addDependency(this.baseDirectory, itemNeeding, itemNeeded, this.aggregateModel, this.gitOps);
+    await dependencyController.addDependency(this.baseDirectory, itemNeeding, itemNeeded, this.aggregateModel);
   }
 
   /**
@@ -206,7 +195,7 @@ export class Sparkle {
   async removeDependency(itemNeeding, itemNeeded) {
     this._ensureInitialized();
 
-    await dependencyController.removeDependency(this.baseDirectory, itemNeeding, itemNeeded, this.aggregateModel, this.gitOps);
+    await dependencyController.removeDependency(this.baseDirectory, itemNeeding, itemNeeded, this.aggregateModel);
   }
 
   /**
@@ -216,7 +205,7 @@ export class Sparkle {
   async addMonitor(itemId) {
     this._ensureInitialized();
 
-    await monitorController.addMonitor(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await monitorController.addMonitor(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**
@@ -226,7 +215,7 @@ export class Sparkle {
   async removeMonitor(itemId) {
     this._ensureInitialized();
 
-    await monitorController.removeMonitor(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await monitorController.removeMonitor(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**
@@ -236,7 +225,7 @@ export class Sparkle {
   async ignoreItem(itemId) {
     this._ensureInitialized();
 
-    await ignoredController.ignoreItem(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await ignoredController.ignoreItem(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**
@@ -246,7 +235,7 @@ export class Sparkle {
   async unignoreItem(itemId) {
     this._ensureInitialized();
 
-    await ignoredController.unignoreItem(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await ignoredController.unignoreItem(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**
@@ -256,7 +245,7 @@ export class Sparkle {
   async takeItem(itemId) {
     this._ensureInitialized();
 
-    await takenController.takeItem(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await takenController.takeItem(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**
@@ -266,7 +255,7 @@ export class Sparkle {
   async surrenderItem(itemId) {
     this._ensureInitialized();
 
-    await takenController.surrenderItem(this.baseDirectory, itemId, this.aggregateModel, this.gitOps);
+    await takenController.surrenderItem(this.baseDirectory, itemId, this.aggregateModel);
   }
 
   /**

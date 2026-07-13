@@ -8,9 +8,54 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { getGitRoot } from '../../src/gitBranchOps.js';
+import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
+import { makeApiRequest } from '../../src/daemonClient.js';
 
 // Check if verbose logging is enabled (default: false for cleaner output)
 const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
+
+/**
+ * Resolve the data dir, ensure a daemon is running, and make one API request.
+ * Every CLI command goes through the daemon so all git (commit/push) has one owner.
+ * @param {string} location - Optional explicit data directory
+ * @param {string} path - API path (e.g. '/api/roots')
+ * @param {string} [method='GET'] - HTTP method
+ * @param {Object} [body=null] - Request body for POST
+ * @returns {Promise<Object>} Parsed response
+ */
+export async function daemonRequest(location, path, method = 'GET', body = null) {
+  const dataDir = await getDataDirectory(location);
+  const port = await ensureDaemon(dataDir);
+  return makeApiRequest(port, path, method, body);
+}
+
+/**
+ * Print a list payload for a read command: raw JSON when --json, else a readable
+ * line-per-entry rendering (plain strings as-is, objects as compact JSON).
+ * @param {boolean} useJson
+ * @param {Object} payload - Full response object (printed verbatim in --json mode)
+ * @param {Array} items - The array to render in non-JSON mode
+ * @param {Function} [render] - Optional (item) => string for non-JSON lines
+ */
+export function printList(useJson, payload, items, render = null) {
+  if (useJson) {
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  if (!items || items.length === 0) {
+    console.log('(none)');
+    return;
+  }
+  for (const item of items) {
+    if (render) {
+      console.log(render(item));
+    } else if (typeof item === 'string') {
+      console.log(item);
+    } else {
+      console.log(JSON.stringify(item));
+    }
+  }
+}
 
 /**
  * Check if --json flag is present in arguments
@@ -136,16 +181,34 @@ export function showHelp() {
   console.log('');
   console.log('Usage:');
   console.log('  npx sparkle                               Show this help');
+  console.log('');
+  console.log('Read:');
   console.log('  npx sparkle cat <itemId> [--json]         Display item details');
   console.log('  npx sparkle inspect <itemId> [--json]     Display item with full dependency chains');
-  console.log('  npx sparkle browser                       Open Sparkle in browser');
+  console.log('  npx sparkle list [search] [--json]        List all items (optionally filtered)');
   console.log('  npx sparkle find-item <search> [--json]   Search items by ID or tagline');
+  console.log('  npx sparkle roots [--json]                List root items (nothing depends on them)');
+  console.log('  npx sparkle pending [--json]              List items pending work');
+  console.log('  npx sparkle takers [--json]               List people who have taken items');
+  console.log('  npx sparkle statuses [--json]             List the allowed status set');
+  console.log('  npx sparkle audit <itemId> [--json]       Show an item\'s full audit trail');
+  console.log('  npx sparkle candidates <itemId> [--dependents] [--json]  Items addable as (de)dependencies');
+  console.log('  npx sparkle config get [--json]           Show project configuration');
+  console.log('');
+  console.log('Write:');
   console.log('  npx sparkle create-item "<tagline>" [--json]  Create new item and return ID');
   console.log('  npx sparkle add-entry <itemId> [--json]   Add entry (reads from stdin)');
   console.log('  npx sparkle alter <itemId> <field> <value> [--json]  Alter item field');
+  console.log('  npx sparkle add-dependency <needing> <needed> [--json]     Make one item depend on another');
+  console.log('  npx sparkle remove-dependency <needing> <needed> [--json]  Remove a dependency');
+  console.log('  npx sparkle set-statuses <status>... [--json]  Configure the custom status set');
+  console.log('  npx sparkle config set <key> <value> [--json]  Set a project config key (e.g. port)');
+  console.log('');
+  console.log('  npx sparkle browser                       Open Sparkle in browser');
   console.log('');
   console.log('Alter fields:');
-  console.log('  status <value>         Change status (must be valid status)');
+  console.log('  status <value>         Change status (must be a valid/allowed status)');
+  console.log('  tagline "<text>"       Change the item tagline');
   console.log('  monitoring <bool>      Set monitoring (yes/no, true/false, 1/0)');
   console.log('  visibility <bool>      Set visibility/ignored (yes=visible, no=hidden)');
   console.log('  responsibility <bool>  Take/release responsibility (yes/no, true/false, 1/0)');
@@ -163,6 +226,9 @@ export function showHelp() {
   console.log('  npx sparkle create-item "Fix bug in parser"');
   console.log('  echo "Updated parser logic" | npx sparkle add-entry 44332211');
   console.log('  npx sparkle alter 44332211 status completed');
-  console.log('  npx sparkle alter 44332211 responsibility yes');
+  console.log('  npx sparkle alter 44332211 tagline "Fix the parser properly"');
+  console.log('  npx sparkle add-dependency 44332211 55667788');
+  console.log('  npx sparkle set-statuses in-progress blocked');
+  console.log('  npx sparkle audit 44332211 --json');
   console.log('');
 }

@@ -76,6 +76,9 @@ async function setupTestEnv(testName) {
 
 // Helper: Get tarball path for current version
 async function getTarballPath() {
+  const { existsSync } = await import('fs');
+  const testTarball = join(process.cwd(), 'sparkle-0.0.0-test.tgz');
+  if (existsSync(testTarball)) return testTarball;
   const packageJsonPath = join(process.cwd(), 'package.json');
   const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
   const version = packageJson.version;

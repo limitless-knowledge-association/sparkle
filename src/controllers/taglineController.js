@@ -13,9 +13,8 @@ import * as taglineEvent from '../events/tagline.js';
  * @param {string} itemId - Item identifier
  * @param {string} tagline - New tagline
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function alterTagline(baseDirectory, itemId, tagline, aggregateModel = null, gitOps = null) {
+export async function alterTagline(baseDirectory, itemId, tagline, aggregateModel = null) {
   if (!tagline || tagline.trim().length === 0) {
     throw new Error('Tagline cannot be empty or whitespace');
   }
@@ -34,8 +33,4 @@ export async function alterTagline(baseDirectory, itemId, tagline, aggregateMode
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }

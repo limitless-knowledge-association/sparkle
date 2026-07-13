@@ -35,7 +35,8 @@ export async function createFile(directory, changes, person) {
   // Use 'statuses' as a pseudo-itemId for filename generation
   // Format: statuses.<empty>.<timestamp>.<random>.json
   const { filename, isoTimestamp } = await generateFilename('statuses', '');
-  const filePath = join(directory, '.sparkle-worktree', 'sparkle-data', filename);
+  // `directory` is already the sparkle-data dir (like every other event handler).
+  const filePath = join(directory, filename);
 
   // Update person timestamp to match filename
   const personData = { ...person, timestamp: isoTimestamp };

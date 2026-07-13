@@ -1,6 +1,7 @@
 # Build artifacts
 *.tgz
 .build-dist/
+.build-test/
 
 # Node modules
 node_modules/
@@ -18,3 +19,6 @@ public/primaryViews.js
 # Integration test directory
 .integration_testing/
 .notes/
+
+# Local tooling
+.claude/

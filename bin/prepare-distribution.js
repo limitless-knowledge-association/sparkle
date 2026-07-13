@@ -48,47 +48,19 @@ async function main() {
     throw new Error(`Failed to create git worktree: ${error.message}`);
   }
 
-  // Step 3: Read development package.json
+  // Step 3: Read the dev package.json (for the version) and the product manifest.
+  // package.dist.json is the single source of truth for the SHIPPED package.json —
+  // the dev package.json holds only build/test scripts + devDependencies.
   const devPkg = JSON.parse(await readFile(PACKAGE_JSON_PATH, 'utf8'));
+  const distManifest = JSON.parse(await readFile(join(ROOT_DIR, 'package.dist.json'), 'utf8'));
 
-  // Step 4: Create clean distribution package.json
-  const distPkg = {
-    name: devPkg.name,
-    version: devPkg.version,
-    description: devPkg.description,
-    type: devPkg.type,
-    main: devPkg.main,
-    // Distribution bin includes daemon commands plus unified CLI
-    bin: {
-      'sparkle-no-daemon': './bin/sparkle_agent.js',
-      'sparkle-daemon': './bin/sparkle_daemon_launch.js',
-      'sparkle-halt': './bin/sparkle_halt.js',
-      'sparkle': './bin/sparkle.js',
-      'recover-sparkle': './bin/recover-sparkle.js'
-    },
-    // Only include postinstall script for first-time setup
-    scripts: {
-      postinstall: devPkg.scripts.postinstall
-    },
-    keywords: devPkg.keywords,
-    author: devPkg.author,
-    license: devPkg.license,
-    copyright: devPkg.copyright,
-    files: devPkg.files
-  };
+  // Step 4: Compose the distribution package.json = product manifest + current version.
+  const distPkg = { name: distManifest.name, version: devPkg.version, ...distManifest };
 
   // Step 5: Write clean package.json to build directory
   const buildPackageJsonPath = join(BUILD_DIR, 'package.json');
   await writeFile(buildPackageJsonPath, JSON.stringify(distPkg, null, 2) + '\n', 'utf8');
-  console.log('✅ Created clean package.json in build directory');
-
-  // Log what was removed
-  const removedScripts = Object.keys(devPkg.scripts).filter(s => s !== 'postinstall');
-  console.log(`   Removed ${removedScripts.length} development scripts`);
-  if (devPkg.devDependencies) {
-    const devDepCount = Object.keys(devPkg.devDependencies).length;
-    console.log(`   Removed ${devDepCount} devDependencies`);
-  }
+  console.log(`✅ Created clean package.json (version ${devPkg.version}) from package.dist.json`);
   console.log('');
 
   // Step 6: Generate version and primary views in build directory

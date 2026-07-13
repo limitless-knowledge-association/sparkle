@@ -37,6 +37,10 @@ import { findItemCommand } from './commands/find-item.js';
 import { createItemCommand } from './commands/create-item.js';
 import { addEntryCommand } from './commands/add-entry.js';
 import { alterCommand } from './commands/alter.js';
+import { addDependencyCommand, removeDependencyCommand } from './commands/dependencies.js';
+import { statusesCommand, setStatusesCommand } from './commands/statuses.js';
+import { listCommand, rootsCommand, pendingCommand, takersCommand, auditCommand, candidatesCommand } from './commands/queries.js';
+import { configCommand } from './commands/config.js';
 
 const command = process.argv[2];
 const arg1 = process.argv[3];
@@ -49,16 +53,12 @@ const arg4 = process.argv[6];
  * For commands with format: cmd arg1 [location] [--json]
  */
 function getLocationArg(argPosition) {
-  const arg = process.argv[argPosition];
-  if (arg === '--json' || arg === undefined) {
-    // Check if there's another arg after --json
-    const nextArg = process.argv[argPosition + 1];
-    if (nextArg && nextArg !== '--json') {
-      return nextArg;
-    }
-    return undefined;
+  // The location is the first non-flag argument at or after argPosition.
+  for (let i = argPosition; i < process.argv.length; i++) {
+    const a = process.argv[i];
+    if (a && !a.startsWith('--')) return a;
   }
-  return arg;
+  return undefined;
 }
 
 /**
@@ -100,6 +100,57 @@ async function main() {
 
       case 'alter':
         await alterCommand(arg1, arg2, arg3, getLocationArg(6));
+        break;
+
+      case 'add-dependency':
+        await addDependencyCommand(arg1, arg2, getLocationArg(5));
+        break;
+
+      case 'remove-dependency':
+        await removeDependencyCommand(arg1, arg2, getLocationArg(5));
+        break;
+
+      case 'set-statuses':
+        await setStatusesCommand(
+          process.argv.slice(3).filter(a => !a.startsWith('--')),
+          undefined
+        );
+        break;
+
+      case 'statuses':
+        await statusesCommand(getLocationArg(3));
+        break;
+
+      case 'list':
+        await listCommand(
+          (arg1 && !arg1.startsWith('--')) ? arg1 : undefined,
+          getLocationArg(4)
+        );
+        break;
+
+      case 'roots':
+        await rootsCommand(getLocationArg(3));
+        break;
+
+      case 'pending':
+        await pendingCommand(getLocationArg(3));
+        break;
+
+      case 'takers':
+        await takersCommand(getLocationArg(3));
+        break;
+
+      case 'audit':
+        await auditCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'candidates':
+        await candidatesCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'config':
+        // config get [location] | config set <key> <value> [location]
+        await configCommand(arg1, arg2, arg3, getLocationArg(arg1 === 'set' ? 6 : 4));
         break;
 
       case 'help':

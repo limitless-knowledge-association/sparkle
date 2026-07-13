@@ -22,7 +22,8 @@ import {
   installSparkle,
   initializeSparkle,
   cleanupEnvironment,
-  createTestId
+  createTestId,
+  stopAllDaemonsUnder
 } from '../helpers/test-helpers.js';
 
 const execAsync = promisify(exec);
@@ -49,6 +50,9 @@ describe('Sparkle CLI', () => {
   });
 
   afterAll(async () => {
+    // Every CLI command launches a detached `--keep-alive=api` daemon via ensureDaemon.
+    // Destroy them all now that this file's tests are done, so they don't linger.
+    await stopAllDaemonsUnder(baseDir);
     await stopLogServer();
   });
 
@@ -113,10 +117,9 @@ describe('Sparkle CLI', () => {
     await sparkle.addEntry(item1, 'Additional entry for item1');
     console.log(`[SETUP] addEntry: ${Date.now() - stepStart}ms`);
 
-    // Force immediate push, canceling any debounced timers
-    stepStart = Date.now();
-    await sparkle.gitOps.forcePushNow();
-    console.log(`[SETUP] forcePushNow: ${Date.now() - stepStart}ms`);
+    // Seeding is git-free: the class writes event files directly to the worktree data
+    // dir, which the daemon (launched by the CLI commands under test) reads locally.
+    // No push is needed; the daemon commits/pushes on the first CLI mutation.
 
     console.log(`[SETUP] Total setupTestData: ${Date.now() - setupStart}ms`);
     return { env, dataDir, item1, item2, item3 };
@@ -558,11 +561,14 @@ describe('Sparkle CLI', () => {
       const { env, dataDir, item1 } = await setupTestData('alter-custom-status');
 
       try {
-        // Create custom statuses.json file with additional status
-        const { writeFile } = await import('fs/promises');
-        const { join } = await import('path');
-        const statusesPath = join(dataDir, 'statuses.json');
-        await writeFile(statusesPath, JSON.stringify(['in-progress', 'blocked']));
+        // Configure custom statuses through the daemon (the supported path — direct
+        // statuses.json writes are shadowed by the daemon's .aggregates/statuses.json).
+        const { ensureDaemon } = await import('../../src/cliDaemonLauncher.js');
+        const { makeApiRequest } = await import('../../src/daemonClient.js');
+        const port = await ensureDaemon(dataDir);
+        await makeApiRequest(port, '/api/updateStatuses', 'POST', {
+          statuses: ['completed', 'incomplete', 'in-progress', 'blocked']
+        });
 
         // Built-in statuses should still work
         await execAsync(`node ${CLI_PATH} alter ${item1} status completed ${dataDir}`);

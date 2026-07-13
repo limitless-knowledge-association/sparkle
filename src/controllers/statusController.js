@@ -17,9 +17,8 @@ import { rebuildStatusesAggregate } from '../statusesAggregate.js';
  * @param {string} status - New status
  * @param {string} [text=''] - Optional text explanation
  * @param {Object} aggregateModel - AggregateModel instance for updating aggregates
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  */
-export async function updateStatus(baseDirectory, itemId, status, text = '', aggregateModel = null, gitOps = null) {
+export async function updateStatus(baseDirectory, itemId, status, text = '', aggregateModel = null) {
   // Verify item exists
   const details = await getItemDetails(baseDirectory, itemId);
 
@@ -52,20 +51,15 @@ export async function updateStatus(baseDirectory, itemId, status, text = '', agg
     await aggregateModel.updateAggregateForEvent(filename, eventData);
   }
 
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 }
 
 /**
  * Update the allowed statuses configuration
  * @param {string} baseDirectory - Base directory for sparkle data
  * @param {Array<string>} statuses - Array of all status names (frontend sends full list)
- * @param {Object} gitOps - GitOperations instance for scheduling commits
  * @returns {Promise<Array<string>>} The new complete list of statuses (including 'incomplete' and 'completed')
  */
-export async function updateStatusConfiguration(baseDirectory, statuses, gitOps = null) {
+export async function updateStatusConfiguration(baseDirectory, statuses) {
   // Validate statuses
   if (!Array.isArray(statuses)) {
     throw new Error('Statuses must be an array');
@@ -112,11 +106,6 @@ export async function updateStatusConfiguration(baseDirectory, statuses, gitOps 
 
   // Get new statuses (with incomplete/completed) for return
   const newStatuses = await getAllowedStatuses(baseDirectory);
-
-  // Notify git operations if provided
-  if (gitOps) {
-    gitOps.notifyFileCreated(filename);
-  }
 
   return newStatuses;
 }
