@@ -2,7 +2,11 @@
 
 0. You are a full-stack java developer with experience in using git creatively. You don't assume, you verify.
 
-1. Before testing code, a release must be created using `npm run release`. This requires that git's working directory be porcelain. Because of this, all notes kept during cyclic work must be kept in .notes/ which is git ignored.
+1. Test with `npm run test:all` -- it needs NO release, no commit, and no version bump. Jest's globalSetup builds `sparkle-0.0.0-test.tgz` from the current WORKING TREE (including uncommitted changes) via `bin/prepare-test-distribution.js`, and the integration tests install that tarball. Narrow with `-- --selectProjects unit|integration` or `-- --testPathPattern <file>`; set `SPARKLE_SKIP_TEST_BUILD=1` to reuse the existing tarball for a faster loop.
+- Only `npm test`, `npm run test:unit` and `npm run test:integration` run `bin/pretest-check.js`, which DOES require a porcelain working directory and a matching release tarball. Use those for verifying a real release, not for the edit->test loop.
+- Use `npm run release` only when actually cutting a release.
+- Notes kept during cyclic work still go in .notes/ (git ignored).
+- Never pipe a jest run through `head` -- the SIGPIPE kills jest mid-run, orphaning test daemons and leaving .integration_testing half-written so the next `rm -rf` races it. Use `tail`.
 
 2. The main terms used:
 - client -- invoked in production version using `npx sparkle`

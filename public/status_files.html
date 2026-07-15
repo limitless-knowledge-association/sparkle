@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Status Files - Sparkle</title>
+  <style id="injected-common-css"></style>
+  <link rel="stylesheet" href="sparkle-base.css">
+  <style>
+    .status-files-panel {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .status-files-panel h2 {
+      margin: 0 0 4px 0;
+      font-size: 20px;
+    }
+
+    .panel-hint {
+      color: #666;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    .status-file-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .status-file-table th {
+      text-align: left;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #666;
+      border-bottom: 2px solid #eee;
+      padding: 8px;
+    }
+
+    .status-file-table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: middle;
+    }
+
+    .status-file-table tr:hover td {
+      background: #fafafa;
+    }
+
+    .status-file-name {
+      background: none;
+      border: none;
+      padding: 0;
+      font: inherit;
+      color: #0066cc;
+      cursor: pointer;
+      text-align: left;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+
+    .status-file-name:hover {
+      color: #004499;
+    }
+
+    .col-size, .col-modified {
+      color: #666;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .col-actions {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .empty-state, .loading-state {
+      padding: 32px;
+      text-align: center;
+      color: #666;
+    }
+
+    .empty-state code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header is injected by sparkle-common.js -->
+
+  <div class="container">
+    <div class="status-files-panel">
+      <h2>Status Files</h2>
+      <div class="panel-hint">
+        Published reports. Click a name to view it, or download a copy.
+      </div>
+      <div id="statusFilesContent">
+        <div class="loading-state">Loading status files...</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import {
+      initializeHeader, connectToServer, loadBranchStatus, loadVersion,
+      getCommonCSS, subscribeToEvent, applyDarkMode
+    } from './sparkle-common.js';
+    import { ConfigurationSettings } from './ConfigurationSettings.js';
+
+    // Inject common CSS
+    document.getElementById('injected-common-css').textContent = getCommonCSS();
+
+    initializeHeader({ usePrimaryViewsDropdown: true });
+
+    const content = document.getElementById('statusFilesContent');
+
+    /**
+     * Human-readable file size.
+     */
+    function formatSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    /**
+     * Local, readable timestamp.
+     */
+    function formatModified(iso) {
+      const date = new Date(iso);
+      if (isNaN(date.getTime())) return iso;
+      return date.toLocaleString();
+    }
+
+    function viewUrl(name, download) {
+      const params = new URLSearchParams({ name });
+      if (download) params.set('download', '1');
+      return `/api/statusFile?${params.toString()}`;
+    }
+
+    /**
+     * Render the table. Rows are built via the DOM (not innerHTML) because a status file
+     * name is arbitrary publisher-supplied text and must never be parsed as markup.
+     */
+    function render(files) {
+      content.textContent = '';
+
+      if (files.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.textContent = 'No status files published yet. Publish one with: ';
+        const code = document.createElement('code');
+        code.textContent = 'npx sparkle add-status-file <name> < file';
+        empty.appendChild(code);
+        content.appendChild(empty);
+        return;
+      }
+
+      const table = document.createElement('table');
+      table.className = 'status-file-table';
+
+      const head = document.createElement('tr');
+      for (const [label, className] of [['Name', ''], ['Size', 'col-size'],
+                                        ['Modified', 'col-modified'], ['', 'col-actions']]) {
+        const th = document.createElement('th');
+        th.textContent = label;
+        if (className) th.className = className;
+        head.appendChild(th);
+      }
+      table.appendChild(head);
+
+      for (const file of files) {
+        const row = document.createElement('tr');
+
+        const nameCell = document.createElement('td');
+        const nameButton = document.createElement('button');
+        nameButton.className = 'status-file-name';
+        nameButton.textContent = file.name;
+        nameButton.title = `View ${file.name}`;
+        nameButton.addEventListener('click', () => {
+          window.open(viewUrl(file.name, false), '_blank', 'noopener');
+        });
+        nameCell.appendChild(nameButton);
+
+        const sizeCell = document.createElement('td');
+        sizeCell.className = 'col-size';
+        sizeCell.textContent = formatSize(file.size);
+
+        const modifiedCell = document.createElement('td');
+        modifiedCell.className = 'col-modified';
+        modifiedCell.textContent = formatModified(file.modified);
+
+        const actionsCell = document.createElement('td');
+        actionsCell.className = 'col-actions';
+        const downloadLink = document.createElement('a');
+        downloadLink.className = 'btn-secondary';
+        downloadLink.href = viewUrl(file.name, true);
+        downloadLink.setAttribute('download', file.name);
+        downloadLink.textContent = 'Download';
+        actionsCell.appendChild(downloadLink);
+
+        row.append(nameCell, sizeCell, modifiedCell, actionsCell);
+        table.appendChild(row);
+      }
+
+      content.appendChild(table);
+    }
+
+    async function loadStatusFiles() {
+      try {
+        const response = await fetch('/api/statusFiles');
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Request failed');
+        render(result.files || []);
+      } catch (error) {
+        content.textContent = '';
+        const failed = document.createElement('div');
+        failed.className = 'empty-state';
+        failed.textContent = `Could not load status files: ${error.message}`;
+        content.appendChild(failed);
+      }
+    }
+
+    // Refresh when a status file is published locally or arrives from another clone.
+    subscribeToEvent('statusFilesUpdated', loadStatusFiles);
+    subscribeToEvent('dataUpdated', loadStatusFiles);
+
+    (async () => {
+      const configSettings = new ConfigurationSettings();
+      try {
+        await configSettings.initialize();
+        applyDarkMode(configSettings.getConfig().darkMode);
+        configSettings.onChange((config) => applyDarkMode(config.darkMode));
+      } catch (error) {
+        // Config is cosmetic here; the listing still works without it.
+        console.warn('Configuration unavailable:', error);
+      }
+
+      connectToServer();
+      loadStatusFiles();
+      loadBranchStatus();
+      loadVersion();
+    })();
+  </script>
+</body>
+</html>

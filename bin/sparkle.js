@@ -39,6 +39,12 @@ import { addEntryCommand } from './commands/add-entry.js';
 import { alterCommand } from './commands/alter.js';
 import { addDependencyCommand, removeDependencyCommand } from './commands/dependencies.js';
 import { statusesCommand, setStatusesCommand } from './commands/statuses.js';
+import {
+  addStatusFileCommand,
+  removeStatusFileCommand,
+  listStatusFilesCommand,
+  fetchStatusFileCommand
+} from './commands/status-files.js';
 import { listCommand, rootsCommand, pendingCommand, takersCommand, auditCommand, candidatesCommand } from './commands/queries.js';
 import { configCommand } from './commands/config.js';
 
@@ -108,6 +114,22 @@ async function main() {
 
       case 'remove-dependency':
         await removeDependencyCommand(arg1, arg2, getLocationArg(5));
+        break;
+
+      case 'add-status-file':
+        await addStatusFileCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'remove-status-file':
+        await removeStatusFileCommand(arg1, getLocationArg(4));
+        break;
+
+      case 'list-status-files':
+        await listStatusFilesCommand(getLocationArg(3));
+        break;
+
+      case 'fetch-status-file':
+        await fetchStatusFileCommand(arg1, getLocationArg(4));
         break;
 
       case 'set-statuses':

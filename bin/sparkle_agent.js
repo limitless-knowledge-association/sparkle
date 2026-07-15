@@ -600,6 +600,24 @@ async function setupSparkleEnvironment() {
     await gitOps.syncAndPush();
   });
 
+  // A previous run may have died between a status conflict and its resolution, which
+  // leaves the worktree mid-merge — and git refuses every commit until that is cleared.
+  // Recover before anything tries to write. Non-fatal.
+  try {
+    await gitOps.recoverFromInterruptedMerge();
+  } catch (error) {
+    console.log(`[startup] Merge recovery deferred: ${error.message}`);
+  }
+
+  // Guarantee the status merge rule exists. Sparkle branches created before status files
+  // existed have no .gitattributes rule, and without it git silently blends concurrent
+  // reports into one that nobody published. Non-fatal.
+  try {
+    await gitOps.ensureStatusMergeRule();
+  } catch (error) {
+    console.log(`[startup] Status merge rule deferred: ${error.message}`);
+  }
+
   // Startup reconciliation: best-effort pull + push to flush any commits stranded while
   // offline in a previous session and pick up remote changes. Non-fatal — the daemon must
   // start even if we're still offline.
@@ -861,6 +879,54 @@ async function sendHTML(res, filename) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not found');
   }
+}
+
+/** Content types for viewing a published status file in the browser. */
+const STATUS_FILE_CONTENT_TYPES = {
+  html: 'text/html',
+  htm: 'text/html',
+  json: 'application/json',
+  xml: 'application/xml',
+  csv: 'text/csv',
+  md: 'text/markdown',
+  log: 'text/plain',
+  txt: 'text/plain'
+};
+
+/**
+ * Send a published status file.
+ *
+ * Status file content is authored by whatever publishes it (a CI system), so it is not
+ * trusted the way our own public/ assets are. The daemon's API has no authentication,
+ * so an HTML report opened in a tab would otherwise run script against the daemon's own
+ * origin and could drive any endpoint. `CSP: sandbox` drops it into a unique opaque
+ * origin — it still renders, but it cannot reach the API. `nosniff` stops a text report
+ * being re-interpreted as script.
+ *
+ * @param {Object} res - HTTP response
+ * @param {string} name - Status file name (as published)
+ * @param {string} content - File content
+ * @param {boolean} asDownload - Send as an attachment rather than for display
+ */
+function sendStatusFile(res, name, content, asDownload) {
+  const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+  const contentType = STATUS_FILE_CONTENT_TYPES[extension] || 'text/plain';
+
+  const headers = {
+    'Content-Type': `${contentType}; charset=utf-8`,
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': 'sandbox',
+    'Cache-Control': 'no-cache, no-store, must-revalidate'
+  };
+
+  if (asDownload) {
+    // RFC 5987: the name is arbitrary text, so it must not be interpolated raw.
+    const encodedName = encodeURIComponent(name);
+    headers['Content-Disposition'] = `attachment; filename*=UTF-8''${encodedName}`;
+  }
+
+  res.writeHead(200, headers);
+  res.end(content);
 }
 
 /**
@@ -1454,6 +1520,52 @@ async function handleRequest(req, res) {
 
       // Send response immediately (git commit is automatically scheduled)
       sendJSON(res, 200, { success: true });
+      return;
+    }
+
+    if (path === '/api/statusFiles') {
+      const files = await sparkle.listStatusFiles();
+      sendJSON(res, 200, { files });
+      return;
+    }
+
+    if (path === '/api/statusFile') {
+      const name = url.searchParams.get('name');
+      if (!name) {
+        sendJSON(res, 400, { error: 'name is required' });
+        return;
+      }
+      try {
+        const content = await sparkle.readStatusFile(name);
+        sendStatusFile(res, name, content, url.searchParams.get('download') === '1');
+      } catch (error) {
+        sendJSON(res, 404, { error: error.message });
+      }
+      return;
+    }
+
+    if (path === '/api/statusFiles/add' && req.method === 'POST') {
+      const body = await parseBody(req);
+      try {
+        const result = await sparkle.addStatusFile(body.name, body.text);
+        broadcastSSE('statusFilesUpdated', { name: body.name });
+        sendJSON(res, 200, { success: true, ...result });
+      } catch (error) {
+        sendJSON(res, 400, { error: error.message });
+      }
+      return;
+    }
+
+    if (path === '/api/statusFiles/remove' && req.method === 'POST') {
+      const body = await parseBody(req);
+      try {
+        const result = await sparkle.removeStatusFile(body.name);
+        broadcastSSE('statusFilesUpdated', { name: body.name, removed: true });
+        sendJSON(res, 200, { success: true, ...result });
+      } catch (error) {
+        // Removing something that was never published is a caller error, not a crash.
+        sendJSON(res, 404, { error: error.message });
+      }
       return;
     }
 

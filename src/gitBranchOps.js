@@ -9,6 +9,7 @@ import { execAsync } from './execUtils.js';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { mkdir, writeFile, readFile, rm } from 'fs/promises';
+import { resolveStatusConflicts } from './statusMerge.js';
 
 // Observer pattern for git availability
 let gitAvailabilityCallback = null;
@@ -455,7 +456,15 @@ export async function fetchUpdates(worktreePath) {
     // 1. Remote changed (new commits from other users/clones)
     // 2. Local is behind remote (this clone's worktree is out of sync)
     if (remoteChanged || localBehind) {
-      await execAsync(`git merge origin/${branch} --no-edit`, { cwd: worktreePath });
+      try {
+        await execAsync(`git merge origin/${branch} --no-edit`, { cwd: worktreePath });
+      } catch (mergeError) {
+        // A published status file is the only thing here that can genuinely conflict.
+        // Left unresolved it does not just break the fetch: git refuses every later
+        // commit while a path is unmerged, so item writes would silently stop too.
+        const { resolved } = await resolveStatusConflicts(worktreePath);
+        if (!resolved) throw mergeError;
+      }
     }
 
     // Fetch succeeded - git is available

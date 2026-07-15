@@ -8,6 +8,12 @@
  */
 
 import { execAsync } from './execUtils.js';
+import {
+  STATUS_DIR_PATH,
+  unmergedPaths,
+  resolveStatusConflicts,
+  writeStatusMergeRule
+} from './statusMerge.js';
 
 /**
  * GitOperations class - manages git operations with event notifications
@@ -91,6 +97,19 @@ export class GitOperations {
       await execAsync('git add sparkle-data/*.json', { cwd: this.baseDirectory });
     } catch (addError) {
       // No matching files to stage yet — fall through; the diff check handles it.
+    }
+
+    // Stage published status files. This needs `-A` rather than a glob for two reasons:
+    // the names are arbitrary (no *.json pattern to match), and a glob is expanded by
+    // the shell against the working tree, so a REMOVED status file would never be
+    // staged and `remove-status-file` would silently never commit.
+    try {
+      await execAsync(
+        `git add -A -- ${STATUS_DIR_PATH} sparkle-data/.gitattributes`,
+        { cwd: this.baseDirectory }
+      );
+    } catch (addError) {
+      // Nothing published yet — fall through; the diff check handles it.
     }
 
     // Nothing staged -> nothing to commit.
@@ -202,8 +221,68 @@ export class GitOperations {
         this._notifyFilesPulled(merged);
       }
     } catch {
-      // Merge conflict or nothing to merge; caller's push attempt will surface real issues.
+      // A failed pull may have left the worktree mid-merge. That is NOT harmless: git
+      // refuses every subsequent commit while a path is unmerged, so an unresolved
+      // status conflict would silently freeze ALL item writes, not just status files.
+      await this._resolveStatusConflicts();
     }
+    return true;
+  }
+
+  /**
+   * Resolve a conflicted merge via the shared status merge policy, and tell listeners
+   * about anything that changed underneath them.
+   * @returns {Promise<boolean>} True if the worktree is now clean of conflicts
+   * @private
+   */
+  async _resolveStatusConflicts() {
+    const { resolved, paths } = await resolveStatusConflicts(this.baseDirectory);
+    if (resolved && paths.length > 0) {
+      this._notifyFilesPulled(paths);
+    }
+    return resolved;
+  }
+
+  /**
+   * Recover a worktree that was left mid-merge by an earlier run (for example a daemon
+   * killed between the conflict and its resolution). Safe to call on a clean worktree.
+   * @returns {Promise<boolean>} True if the worktree is usable
+   */
+  async recoverFromInterruptedMerge() {
+    return this._serialize(async () => {
+      const unmerged = await unmergedPaths(this.baseDirectory);
+      if (unmerged.length === 0) return true;
+      console.warn(`[GitOperations] Worktree left mid-merge (${unmerged.length} path(s)); recovering`);
+      return this._resolveStatusConflicts();
+    });
+  }
+
+  /**
+   * Ensure the status merge rule is present and committed.
+   *
+   * The rule must exist in EVERY clone, so it is a committed file rather than local
+   * config. Sparkle branches created before status files existed will not have it, and
+   * without it git silently blends concurrent reports — so this self-heals on startup.
+   * Appends to any existing sparkle-data/.gitattributes rather than overwriting it.
+   *
+   * @returns {Promise<boolean>} True if the rule is in place
+   */
+  async ensureStatusMergeRule() {
+    let changed;
+    try {
+      changed = await writeStatusMergeRule(this.baseDirectory);
+    } catch (error) {
+      console.error(`[GitOperations] Could not write .gitattributes: ${error.message}`);
+      return false;
+    }
+
+    if (!changed) return true;
+
+    // Commit it now. Left uncommitted it is a local modification, and git refuses to
+    // merge over those — which would block the very pull this rule exists to make safe.
+    // commit() serializes internally, so it must NOT be called from inside _serialize.
+    await this.commit();
+    console.log('[GitOperations] Added status merge rule to sparkle-data/.gitattributes');
     return true;
   }
 

@@ -82,6 +82,44 @@ function makeApiRequestOnce(port, path, method = 'GET', body = null) {
 }
 
 /**
+ * GET a response body from the daemon verbatim, with no JSON parsing.
+ *
+ * makeApiRequest parses JSON when it can, which would silently reformat a published
+ * .json status file — the caller must receive exactly the bytes that were published.
+ *
+ * @param {number} port - Daemon port
+ * @param {string} path - API path
+ * @returns {Promise<string>} Raw response body
+ */
+export function makeRawApiRequest(port, path) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: 'localhost', port, path, method: 'GET' },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(data);
+            return;
+          }
+          // Errors are JSON; surface the message rather than the envelope.
+          let message = data;
+          try {
+            message = JSON.parse(data).error || data;
+          } catch {
+            // Not JSON — use the body as-is.
+          }
+          reject(new Error(message));
+        });
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/**
  * Create SSE connection to daemon and listen for events
  * @param {number} port - Daemon port
  * @returns {EventEmitter} EventEmitter that emits daemon SSE events

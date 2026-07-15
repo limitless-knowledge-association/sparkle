@@ -9,7 +9,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { getGitRoot } from '../../src/gitBranchOps.js';
 import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
-import { makeApiRequest } from '../../src/daemonClient.js';
+import { makeApiRequest, makeRawApiRequest } from '../../src/daemonClient.js';
 
 // Check if verbose logging is enabled (default: false for cleaner output)
 const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
@@ -27,6 +27,19 @@ export async function daemonRequest(location, path, method = 'GET', body = null)
   const dataDir = await getDataDirectory(location);
   const port = await ensureDaemon(dataDir);
   return makeApiRequest(port, path, method, body);
+}
+
+/**
+ * Like daemonRequest, but returns the response body verbatim with no JSON parsing.
+ * Use for content that must survive byte-for-byte (a published status file).
+ * @param {string} location - Optional explicit data directory
+ * @param {string} path - API path
+ * @returns {Promise<string>} Raw response body
+ */
+export async function daemonRawRequest(location, path) {
+  const dataDir = await getDataDirectory(location);
+  const port = await ensureDaemon(dataDir);
+  return makeRawApiRequest(port, path);
 }
 
 /**
@@ -191,6 +204,8 @@ export function showHelp() {
   console.log('  npx sparkle pending [--json]              List items pending work');
   console.log('  npx sparkle takers [--json]               List people who have taken items');
   console.log('  npx sparkle statuses [--json]             List the allowed status set');
+  console.log('  npx sparkle list-status-files [--json]    List published status files');
+  console.log('  npx sparkle fetch-status-file <name>      Print a status file to stdout');
   console.log('  npx sparkle audit <itemId> [--json]       Show an item\'s full audit trail');
   console.log('  npx sparkle candidates <itemId> [--dependents] [--json]  Items addable as (de)dependencies');
   console.log('  npx sparkle config get [--json]           Show project configuration');
@@ -202,6 +217,8 @@ export function showHelp() {
   console.log('  npx sparkle add-dependency <needing> <needed> [--json]     Make one item depend on another');
   console.log('  npx sparkle remove-dependency <needing> <needed> [--json]  Remove a dependency');
   console.log('  npx sparkle set-statuses <status>... [--json]  Configure the custom status set');
+  console.log('  npx sparkle add-status-file <name> [--json]    Publish a status file (reads from stdin)');
+  console.log('  npx sparkle remove-status-file <name> [--json] Remove a published status file');
   console.log('  npx sparkle config set <key> <value> [--json]  Set a project config key (e.g. port)');
   console.log('');
   console.log('  npx sparkle browser                       Open Sparkle in browser');

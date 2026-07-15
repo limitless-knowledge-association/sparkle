@@ -23,6 +23,7 @@ import * as dependencyController from './controllers/dependencyController.js';
 import * as monitorController from './controllers/monitorController.js';
 import * as ignoredController from './controllers/ignoredController.js';
 import * as takenController from './controllers/takenController.js';
+import * as statusFileController from './controllers/statusFileController.js';
 
 // Default base directory for sparkle data (can be overridden for testing)
 let baseDirectory = './sparkle-data';
@@ -1140,4 +1141,53 @@ export async function updateAggregateMetadata(updates) {
  */
 export async function rebuildAggregate(itemId) {
   return await aggregateManager.rebuildAggregate(itemId);
+}
+
+/**
+ * Publish a status file, adding it if absent and replacing it wholesale if present.
+ * Status files carry no per-item aggregate, so only git is scheduled.
+ * @param {string} name - Status file name
+ * @param {string} text - Full file content
+ * @returns {Promise<{name: string, created: boolean, bytes: number}>}
+ */
+export async function addStatusFile(name, text) {
+  const result = await statusFileController.addStatusFile(baseDirectory, name, text);
+
+  if (injectedGitScheduler) {
+    await injectedGitScheduler();
+  }
+
+  return result;
+}
+
+/**
+ * Remove a published status file.
+ * @param {string} name - Status file name
+ * @returns {Promise<{name: string}>}
+ */
+export async function removeStatusFile(name) {
+  const result = await statusFileController.removeStatusFile(baseDirectory, name);
+
+  if (injectedGitScheduler) {
+    await injectedGitScheduler();
+  }
+
+  return result;
+}
+
+/**
+ * List published status files.
+ * @returns {Promise<Array<{name: string, size: number, modified: string}>>}
+ */
+export async function listStatusFiles() {
+  return await statusFileController.listStatusFiles(baseDirectory);
+}
+
+/**
+ * Read a published status file.
+ * @param {string} name - Status file name
+ * @returns {Promise<string>} File content
+ */
+export async function readStatusFile(name) {
+  return await statusFileController.readStatusFile(baseDirectory, name);
 }
