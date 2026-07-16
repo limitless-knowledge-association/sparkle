@@ -337,7 +337,6 @@ export function initializeHeader(options = {}) {
         </select>
         <button id="newWindowBtn" class="header-btn" onclick="window.openNewWindow()" title="Open new window">New Window</button>
         <button id="createItemBtn" class="header-btn" onclick="window.openCreateItemModal()" title="Create new item">Create Item</button>
-        <button id="statusFilesBtn" class="header-btn" onclick="window.openStatusFiles()" title="View published status files">Status Files</button>
         <button id="configBtn" class="header-btn" onclick="window.openConfigurationModal()" title="Configuration">Configuration</button>
       </div>
     `;
@@ -439,12 +438,6 @@ export function initializeHeader(options = {}) {
       }
       const { openConfigurationModal } = await import('./configuration-modal.js');
       openConfigurationModal();
-    };
-  }
-
-  if (!window.openStatusFiles) {
-    window.openStatusFiles = function() {
-      window.location.href = 'status_files.html';
     };
   }
 

@@ -99,17 +99,24 @@ export class GitOperations {
       // No matching files to stage yet — fall through; the diff check handles it.
     }
 
-    // Stage published status files. This needs `-A` rather than a glob for two reasons:
-    // the names are arbitrary (no *.json pattern to match), and a glob is expanded by
-    // the shell against the working tree, so a REMOVED status file would never be
-    // staged and `remove-status-file` would silently never commit.
+    // Stage published status files. `-A` (not a glob) because the names are arbitrary
+    // (no *.json pattern) and because a shell glob would never stage a REMOVED file, so
+    // `remove-status-file` would silently never commit. `-f` because the sparkle-data
+    // .gitignore excludes `*.log` for daemon runtime noise — but a publisher may name a
+    // status file `build.log`, and a published artifact must ALWAYS commit regardless of
+    // ignore rules. The pathspec is scoped to status/, so nothing else is force-added.
     try {
-      await execAsync(
-        `git add -A -- ${STATUS_DIR_PATH} sparkle-data/.gitattributes`,
-        { cwd: this.baseDirectory }
-      );
+      await execAsync(`git add -A -f -- ${STATUS_DIR_PATH}`, { cwd: this.baseDirectory });
     } catch (addError) {
       // Nothing published yet — fall through; the diff check handles it.
+    }
+
+    // Stage the merge rule separately: bundling it with the status pathspec means a
+    // missing .gitattributes makes the whole `git add` fatal and stage NOTHING.
+    try {
+      await execAsync('git add -- sparkle-data/.gitattributes', { cwd: this.baseDirectory });
+    } catch (addError) {
+      // Not written yet (ensureStatusMergeRule creates it) — fall through.
     }
 
     // Nothing staged -> nothing to commit.

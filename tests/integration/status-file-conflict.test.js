@@ -208,6 +208,30 @@ describe('commit staging', () => {
     await execAsync('git pull origin main', { cwd: cloneB });
     expect(existsSync(join(dataDir(cloneB), 'status', 'ci.json'))).toBe(false);
   });
+
+  it('commits a status file whose name the sparkle-data .gitignore would exclude', async () => {
+    // The real installed sparkle-data/.gitignore excludes `*.log` for daemon runtime
+    // noise. A CI publisher may legitimately name a report `build.log`; without a forced
+    // add it would be written, reported as success, yet silently never commit or sync.
+    await writeFile(join(dataDir(cloneA), '.gitignore'), '.aggregates/\nlast_port.data\n*.log\n', 'utf8');
+    await addStatusFile(dataDir(cloneA), 'build.log', 'compiling...\nOK\n');
+
+    const result = await new GitOperations(cloneA).commit();
+    expect(result.committed).toBe(true);
+
+    const { stdout } = await execAsync('git ls-files sparkle-data/status', { cwd: cloneA });
+    expect(stdout).toMatch(/status\/build\.log/);
+  });
+
+  it('still lets the .gitignore exclude a daemon log outside status/', async () => {
+    // The force is scoped to status/ only — ordinary ignored runtime files stay ignored.
+    await writeFile(join(dataDir(cloneA), '.gitignore'), '.aggregates/\nlast_port.data\n*.log\n', 'utf8');
+    await writeFile(join(dataDir(cloneA), 'server.log'), 'runtime noise\n', 'utf8');
+    await new GitOperations(cloneA).commit();
+
+    const { stdout } = await execAsync('git ls-files sparkle-data', { cwd: cloneA });
+    expect(stdout).not.toMatch(/server\.log/);
+  });
 });
 
 describe('fetchUpdates (the periodic fetch path)', () => {

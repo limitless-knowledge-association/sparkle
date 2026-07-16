@@ -62,13 +62,20 @@ describe('Browser status files view', () => {
     if (ctx.env) await cleanupEnvironment(ctx.env.testDir);
   }, 60000);
 
-  test('the header Status Files button opens the view', async () => {
+  test('the view dropdown offers Status Files and navigates to it', async () => {
     const page = await ctx.browser.newPage();
     try {
       await page.goto(`${ctx.base}/list_view.html`, { waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('#statusFilesBtn', { timeout: 20000 });
-      await page.click('#statusFilesBtn');
 
+      // Status Files is a primary view (a dropdown choice), not a separate button.
+      // <option> elements are never "visible" until the select opens, so wait for attached.
+      await page.waitForSelector('#viewSelector option[value="status_files.html"]',
+        { state: 'attached', timeout: 20000 });
+      const label = await page.$eval('#viewSelector option[value="status_files.html"]', o => o.textContent);
+      expect(label).toBe('Status Files');
+      expect(await page.$('#statusFilesBtn')).toBeNull();
+
+      await page.selectOption('#viewSelector', 'status_files.html');
       await page.waitForURL(/status_files\.html/, { timeout: 10000 });
       await page.waitForSelector('.status-file-table', { timeout: 10000 });
     } finally {
