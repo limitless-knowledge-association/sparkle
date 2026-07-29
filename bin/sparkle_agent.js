@@ -700,7 +700,7 @@ async function setupFromExistingBranch() {
 /**
  * Perform git fetch and check for changes
  */
-async function performFetch() {
+async function performFetch({ alwaysBroadcast = false } = {}) {
   try {
     const oldSHA = lastChangeSHA;
     const result = await fetchUpdates(worktreePath);
@@ -729,6 +729,16 @@ async function performFetch() {
       broadcastSSE('statusesUpdated', {});
     }
 
+    // Broadcast the generic data-changed event so the client runs its single
+    // refresh path. The local-commit path already emits this; the fetch path
+    // must too, or views that refresh on 'dataUpdated' (audit trail, status
+    // files) only update on a full page reload. When alwaysBroadcast is set
+    // (an explicit "Update Now" press) we emit even with no new commits, so a
+    // button press always redraws the client.
+    if (result.changed || alwaysBroadcast) {
+      broadcastSSE('dataUpdated', { timestamp: lastChangeTimestamp, source: 'fetch' });
+    }
+
     // Git availability is updated by fetchUpdates via observer
     return { success: true, ...result };
   } catch (error) {
@@ -742,7 +752,7 @@ async function performFetch() {
 /**
  * Perform fetch operation asynchronously and broadcast status
  */
-async function performAsyncFetch() {
+async function performAsyncFetch({ alwaysBroadcast = false } = {}) {
   if (isFetchInProgress) {
     console.log('Fetch already in progress, ignoring request');
     return;
@@ -752,7 +762,7 @@ async function performAsyncFetch() {
   broadcastSSE('fetchStatus', { inProgress: true });
 
   try {
-    const result = await performFetch();
+    const result = await performFetch({ alwaysBroadcast });
     return result;
   } finally {
     isFetchInProgress = false;
@@ -1217,9 +1227,15 @@ async function handleRequest(req, res) {
     }
 
     if (path === '/api/fetch' && req.method === 'POST') {
+      // A button press must always redraw the client. On the normal path the
+      // fetch below broadcasts 'dataUpdated' unconditionally (alwaysBroadcast).
+      // The two early-return branches skip the fetch, so they emit it here so
+      // the client's single refresh path still runs on every button press.
+
       // Defer an explicit fetch while a push is pending; the debounced push does its own
       // fetch/merge, so it will bring remote changes in shortly.
       if (isPushScheduled()) {
+        broadcastSSE('dataUpdated', { timestamp: lastChangeTimestamp, source: 'fetch-request' });
         sendJSON(res, 200, {
           success: true,
           deferred: true,
@@ -1230,12 +1246,13 @@ async function handleRequest(req, res) {
 
       // Ignore if fetch is already in progress
       if (isFetchInProgress) {
+        broadcastSSE('dataUpdated', { timestamp: lastChangeTimestamp, source: 'fetch-request' });
         sendJSON(res, 200, { success: false, message: 'Fetch already in progress' });
         return;
       }
 
       // Start async fetch and return immediately
-      performAsyncFetch();
+      performAsyncFetch({ alwaysBroadcast: true });
 
       // Don't reset nextFetchTime yet - wait until fetch completes
       // The countdown broadcast will show "Updating..." while isFetchInProgress is true

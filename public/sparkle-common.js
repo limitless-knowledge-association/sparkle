@@ -592,6 +592,9 @@ export function connectToServer(eventHandlers = {}) {
   // Handle dataUpdated events - publish to all subscribers
   eventSource.addEventListener('dataUpdated', function(e) {
     console.log('SSE dataUpdated received, publishing to subscribers');
+    // Re-run the same header refresh the page does on load, so the "Updated:"
+    // time (and branch status) advance live instead of only on a full reload.
+    loadBranchStatus();
     publishEvent('dataUpdated', e);
   });
 
