@@ -39,11 +39,12 @@ function displayItem(details, label = 'Item') {
   // Entries
   if (details.entries && details.entries.length > 0) {
     console.log(`\nEntries (${details.entries.length}):`);
-    for (const entry of details.entries) {
+    for (const [index, entry] of details.entries.entries()) {
       const timestamp = entry.person?.timestamp || entry.timestamp;
       const date = timestamp ? new Date(timestamp).toLocaleString() : 'unknown date';
       const author = entry.person?.name || entry.author || 'unknown';
-      console.log(`  • [${date}] ${author}`);
+      const seq = entry.seq ?? (index + 1);
+      console.log(`  #${seq} [${date}] ${author}`);
       console.log(`    ${entry.text}`);
     }
   } else {

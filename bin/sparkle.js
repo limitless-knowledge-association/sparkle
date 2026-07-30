@@ -29,7 +29,7 @@
  *   npx sparkle alter 44332211 responsibility yes
  */
 
-import { showHelp } from './lib/helpers.js';
+import { showHelp, VALUE_FLAGS } from './lib/helpers.js';
 import { catCommand } from './commands/cat.js';
 import { inspectCommand } from './commands/inspect.js';
 import { browserCommand } from './commands/browser.js';
@@ -62,7 +62,18 @@ function getLocationArg(argPosition) {
   // The location is the first non-flag argument at or after argPosition.
   for (let i = argPosition; i < process.argv.length; i++) {
     const a = process.argv[i];
-    if (a && !a.startsWith('--')) return a;
+    if (!a) continue;
+
+    // Skip a value-taking flag AND the value it consumes. Without this,
+    // `sparkle cat 12345678 --entry 3` would treat the "3" as a data directory,
+    // because it is simply the next argument that does not start with "--".
+    if (VALUE_FLAGS.has(a)) {
+      i++;
+      continue;
+    }
+    if (a.startsWith('--')) continue;
+
+    return a;
   }
   return undefined;
 }

@@ -11,7 +11,8 @@ import { createServer, get as httpGet } from 'http';
 import { readFile, writeFile, unlink } from 'fs/promises';
 import { join, dirname, isAbsolute, basename } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { existsSync, createWriteStream, readFileSync } from 'fs';
+import { existsSync, createWriteStream, readFileSync, unlinkSync } from 'fs';
+import * as portFile from '../src/portFile.js';
 import * as sparkle from '../src/sparkle.js';
 import { SPARKLE_VERSION } from '../src/version.js';
 import { execSyncWithOptions, execAsync } from '../src/execUtils.js';
@@ -71,6 +72,11 @@ let sparkleDataPath;
 let config = null;
 let gitOps = null;
 let lastChangeSHA = null;
+// Tracked separately from lastChangeSHA on purpose. lastChangeSHA is "the SHA of the most
+// recent change we told clients about" and is written from local commits too, so it is NOT
+// a valid left-hand side for a diff against origin/<branch>. lastRemoteSHA is only ever
+// the last origin SHA we have already processed, which is what the fetch diff needs.
+let lastRemoteSHA = null;
 let lastChangeTimestamp = null;
 let fetchIntervalId = null;
 let server = null;
@@ -296,6 +302,13 @@ function updateGitAvailability(available, reason = 'unknown', details = null) {
  * Start background rebuild of all aggregates
  */
 async function startBackgroundRebuild() {
+  // Several paths can ask for a repair (startup validation, an undiffable fetch).
+  // AggregateModel.rebuildAll throws if one is already running, so gate here.
+  if (rebuildInProgress) {
+    console.log('Rebuild already in progress, ignoring request');
+    return;
+  }
+
   rebuildInProgress = true;
   rebuildStartTime = Date.now();
 
@@ -618,6 +631,39 @@ async function setupSparkleEnvironment() {
     console.log(`[startup] Status merge rule deferred: ${error.message}`);
   }
 
+  // Rebuild system aggregates (statuses, takers)
+  console.log('Rebuilding system aggregates...');
+  const { rebuildStatusesAggregate } = await import('../src/statusesAggregate.js');
+  const { rebuildTakersAggregate } = await import('../src/takersAggregate.js');
+  await rebuildStatusesAggregate(sparkleDataPath);
+  await rebuildTakersAggregate(sparkleDataPath);
+  console.log('System aggregates rebuilt');
+
+  // Get initial SHA
+  lastChangeSHA = await getCurrentSHA(worktreePath);
+  lastRemoteSHA = lastChangeSHA;
+  lastChangeTimestamp = Date.now();
+
+  console.log(`Sparkle environment ready:`);
+  console.log(`  Worktree: ${worktreePath}`);
+  console.log(`  Data directory: ${sparkleDataPath}`);
+}
+
+/**
+ * Work that must happen at startup but must NOT delay the HTTP server coming up.
+ *
+ * Both of these used to run inline in setupSparkleEnvironment, i.e. before
+ * server.listen() and therefore before the port file was written — so `npx sparkle`
+ * sat waiting on them. syncAndPush is a network round trip, and aggregate validation
+ * was quadratic in repo size (measured ~15.8s at 200 items). Neither is needed to
+ * serve a request: the daemon can answer from existing aggregates while they run.
+ */
+// Resolves when runDeferredStartupWork() has finished. Anything that must observe a
+// reconciled worktree awaits this rather than assuming startup already completed —
+// moving the work off the pre-listen path means a request can now arrive before it.
+let deferredStartupPromise = null;
+
+async function runDeferredStartupWork() {
   // Startup reconciliation: best-effort pull + push to flush any commits stranded while
   // offline in a previous session and pick up remote changes. Non-fatal — the daemon must
   // start even if we're still offline.
@@ -627,32 +673,19 @@ async function setupSparkleEnvironment() {
     console.log(`[startup] Reconciliation deferred: ${error.message}`);
   }
 
-  // Rebuild system aggregates (statuses, takers)
-  console.log('Rebuilding system aggregates...');
-  const { rebuildStatusesAggregate } = await import('../src/statusesAggregate.js');
-  const { rebuildTakersAggregate } = await import('../src/takersAggregate.js');
-  await rebuildStatusesAggregate(sparkleDataPath);
-  await rebuildTakersAggregate(sparkleDataPath);
-  console.log('System aggregates rebuilt');
+  // Validate aggregates, repairing in the background if any are stale.
+  try {
+    const aggregateStatus = await sparkle.validateAllAggregates();
 
-  // Validate aggregates on startup
-  const aggregateStatus = await sparkle.validateAllAggregates();
-
-  if (!aggregateStatus.valid) {
-    console.log(`Warning: ${aggregateStatus.invalidItems.length} invalid aggregates found, rebuilding...`);
-    // Start background rebuild (non-blocking)
-    startBackgroundRebuild();
-  } else {
-    console.log('Aggregate store validated successfully');
+    if (!aggregateStatus.valid) {
+      console.log(`Warning: ${aggregateStatus.invalidItems.length} invalid aggregates found, rebuilding...`);
+      startBackgroundRebuild();
+    } else {
+      console.log('Aggregate store validated successfully');
+    }
+  } catch (error) {
+    console.log(`[startup] Aggregate validation failed: ${error.message}`);
   }
-
-  // Get initial SHA
-  lastChangeSHA = await getCurrentSHA(worktreePath);
-  lastChangeTimestamp = Date.now();
-
-  console.log(`Sparkle environment ready:`);
-  console.log(`  Worktree: ${worktreePath}`);
-  console.log(`  Data directory: ${sparkleDataPath}`);
 }
 
 /**
@@ -702,27 +735,41 @@ async function setupFromExistingBranch() {
  */
 async function performFetch({ alwaysBroadcast = false } = {}) {
   try {
-    const oldSHA = lastChangeSHA;
+    // Diff from the last REMOTE sha we processed, not lastChangeSHA. lastChangeSHA is also
+    // written by the local-commit callback, so using it here produced ranges spanning
+    // unrelated refs whenever a local commit landed between fetches.
+    const oldSHA = lastRemoteSHA;
     const result = await fetchUpdates(worktreePath);
 
     if (result.changed) {
       lastChangeSHA = result.sha;
+      lastRemoteSHA = result.sha;
       lastChangeTimestamp = Date.now();
       console.log(`Fetched updates, new SHA: ${result.sha}`);
 
-      // Rebuild affected aggregates by getting changed files
+      // Rebuild affected aggregates by getting changed files.
+      // If we cannot determine the changed set, we must NOT silently skip invalidation:
+      // doing so left the aggregates stale while still broadcasting dataUpdated, so the
+      // daemon looked healthy and the list view quietly froze until a manual reload.
+      // Fall back to a full rebuild instead.
+      let changedFiles = null;
       try {
-        const output = execSyncWithOptions(`git diff --name-only ${oldSHA} ${result.sha}`, {
-          cwd: worktreePath,
-          encoding: 'utf8'
-        }).trim();
-
-        const changedFiles = output ? output.split('\n') : [];
-        if (changedFiles.length > 0) {
-          await invalidateAggregatesForFiles(changedFiles);
+        if (oldSHA) {
+          const output = execSyncWithOptions(`git diff --name-only ${oldSHA} ${result.sha}`, {
+            cwd: worktreePath,
+            encoding: 'utf8'
+          }).trim();
+          changedFiles = output ? output.split('\n') : [];
         }
       } catch (error) {
-        console.error('Failed to get changed files:', error);
+        console.error(`Failed to diff ${oldSHA}..${result.sha}, falling back to full rebuild:`, error.message);
+      }
+
+      if (changedFiles === null) {
+        console.log('Changed-file set unavailable — rebuilding all aggregates');
+        startBackgroundRebuild();
+      } else if (changedFiles.length > 0) {
+        await invalidateAggregatesForFiles(changedFiles);
       }
 
       // Broadcast statuses update event after fetch (in case statuses.json changed)
@@ -753,6 +800,19 @@ async function performFetch({ alwaysBroadcast = false } = {}) {
  * Perform fetch operation asynchronously and broadcast status
  */
 async function performAsyncFetch({ alwaysBroadcast = false } = {}) {
+  // Startup reconciliation pulls remote commits and rebuilds the affected aggregates via
+  // the onFilesPulled callback. It now runs in the background so the daemon can start
+  // serving immediately, which means a fetch request can land while it is still going.
+  // Fetching underneath it would see "no new commits" (reconciliation already merged them)
+  // and skip the rebuild, leaving freshly-pulled items with no aggregate to read.
+  if (deferredStartupPromise) {
+    try {
+      await deferredStartupPromise;
+    } catch (error) {
+      console.log('Deferred startup work failed before fetch:', error.message);
+    }
+  }
+
   if (isFetchInProgress) {
     console.log('Fetch already in progress, ignoring request');
     return;
@@ -812,34 +872,60 @@ async function checkExistingDaemon() {
     }
   }
 
-  // Priority 2: Check last_port.data (ephemeral port from previous run)
-  const portFilePath = join(sparkleDataPath, 'last_port.data');
-  if (!existsSync(portFilePath)) {
+  // Priority 2: Check last_port.data (ephemeral port from previous run).
+  // readLivePortFile deletes the file if the recorded PID is gone, so a crashed daemon
+  // does not make us think another instance is already running.
+  const info = await portFile.readLivePortFile(sparkleDataPath);
+  if (!info) {
     return false;
   }
 
-  try {
-    const portData = await readFile(portFilePath, 'utf8');
-    const port = parseInt(portData.trim(), 10);
-
-    const isRunning = await testPort(port);
-    if (isRunning) {
-      console.log(`Found existing daemon on ephemeral port ${port}`);
-      return port;
-    }
-
-    return false;
-  } catch (error) {
+  // Written by an older Sparkle: shut it down and drop the file, then continue starting
+  // so this (current) daemon takes over and writes the file in the new format.
+  if (info.legacy) {
+    await portFile.retireLegacyPortFile(sparkleDataPath, info.port);
     return false;
   }
+
+  const isRunning = await testPort(info.port);
+  if (isRunning) {
+    console.log(`Found existing daemon on ephemeral port ${info.port}`);
+    return info.port;
+  }
+
+  return false;
 }
 
 /**
- * Write port to last_port.data file
+ * Write the port file, recording this process's PID alongside the port so readers can
+ * tell a live daemon from one that died and left the file behind.
  */
 async function writePortFile(port) {
-  const portFilePath = join(sparkleDataPath, 'last_port.data');
-  await writeFile(portFilePath, port.toString(), 'utf8');
+  await portFile.writePortFile(sparkleDataPath, port, process.pid);
+}
+
+/**
+ * Remove the port file on the way out.
+ *
+ * Every exit path calls this: without it a stopped daemon kept advertising a port nobody
+ * was listening on, and callers that treat "file exists" as "daemon running"
+ * (sparkle-halt, the installer) reported a daemon that was long gone. Best effort and
+ * synchronous-safe — it also runs from the process 'exit' handler, where async work
+ * cannot complete.
+ */
+function clearPortFileSync() {
+  if (!sparkleDataPath) {
+    return;
+  }
+  try {
+    const path = portFile.getPortFilePath(sparkleDataPath);
+    if (existsSync(path)) {
+      unlinkSync(path);
+      console.log('Port file removed.');
+    }
+  } catch (error) {
+    // Nothing useful to do while exiting.
+  }
 }
 
 /**
@@ -1423,17 +1509,22 @@ async function handleRequest(req, res) {
       return;
     }
 
-    // Check if aggregate rebuild is in progress (before read APIs)
-    if (rebuildInProgress && (
-      path === '/api/allItems' ||
-      path === '/api/pendingWork' ||
-      path === '/api/dag' ||
-      path === '/api/roots' ||
-      path === '/api/getItemDetails'
-    )) {
-      sendJSON(res, 503, {
-        error: 'Aggregate rebuild in progress',
-        rebuilding: true,
+    // A rebuild used to make these endpoints answer 503. The browser's first load calls
+    // /api/allItems before it has registered any SSE listeners, so a 503 aborted client
+    // initialization outright and the page stayed blank FOREVER — no retry, no recovery,
+    // only a manual reload once the rebuild had finished.
+    //
+    // Aggregates are rebuilt in place and every item that has been rebuilt so far is
+    // readable, so serving what exists is strictly better than refusing. Answer 200 with
+    // the data we have plus a `rebuilding` marker; the client renders a read-only banner
+    // and refreshes when the rebuildCompleted event arrives.
+    const rebuildNotice = rebuildInProgress
+      ? { rebuilding: true, progress: rebuildProgress }
+      : null;
+
+    if (path === '/api/aggregateStatus') {
+      sendJSON(res, 200, {
+        rebuilding: rebuildInProgress,
         progress: rebuildProgress
       });
       return;
@@ -1469,7 +1560,7 @@ async function handleRequest(req, res) {
       const duration = endTime - startTime;
       console.log(`[API] GET /api/allItems - end: ${new Date(endTime).toISOString()}, duration: ${duration}ms, total: ${items.length}, filtered: ${filteredItems.length}`);
 
-      sendJSON(res, 200, { items: filteredItems });
+      sendJSON(res, 200, { items: filteredItems, ...rebuildNotice });
       return;
     }
 
@@ -1492,7 +1583,7 @@ async function handleRequest(req, res) {
         }
         const dagDuration = Date.now() - dagStart;
         if (logger) logger.info(`[API] GET /api/dag?referenceId=${referenceId} - end: ${new Date().toISOString()}, duration: ${dagDuration}ms, nodes: ${nodes.length}`);
-        sendJSON(res, 200, { nodes });
+        sendJSON(res, 200, { nodes, ...rebuildNotice });
       } catch (error) {
         if (logger) logger.error(`[API] GET /api/dag?referenceId=${referenceId} - error: ${error.message}`);
         sendJSON(res, 404, { error: error.message });
@@ -1508,7 +1599,7 @@ async function handleRequest(req, res) {
         const roots = await sparkle.getRootItems();
         const rootsDuration = Date.now() - rootsStart;
         if (logger) logger.info(`[API] GET /api/roots - end: ${new Date().toISOString()}, duration: ${rootsDuration}ms, roots: ${roots.length}`);
-        sendJSON(res, 200, { roots });
+        sendJSON(res, 200, { roots, ...rebuildNotice });
       } catch (error) {
         if (logger) logger.error(`[API] GET /api/roots - error: ${error.message}`);
         sendJSON(res, 500, { error: error.message });
@@ -1583,6 +1674,41 @@ async function handleRequest(req, res) {
         // Removing something that was never published is a caller error, not a crash.
         sendJSON(res, 404, { error: error.message });
       }
+      return;
+    }
+
+    // --- Saved views -------------------------------------------------------------
+    // Named snapshots of on-screen state, stored in the git-ignored .aggregates/ dir so
+    // they stay local to the clone but are shared by every browser hitting this daemon.
+    if (path === '/api/views' && req.method === 'GET') {
+      const savedViews = await import('../src/savedViews.js');
+      const views = await savedViews.loadViews(sparkleDataPath);
+      sendJSON(res, 200, { views });
+      return;
+    }
+
+    if (path === '/api/views/save' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const savedViews = await import('../src/savedViews.js');
+      try {
+        const views = await savedViews.saveView(
+          sparkleDataPath, body.name, body.page, body.state);
+        broadcastSSE('viewsUpdated', {});
+        sendJSON(res, 200, { success: true, views });
+      } catch (error) {
+        sendJSON(res, 400, { error: error.message });
+      }
+      return;
+    }
+
+    if (path === '/api/views/delete' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const savedViews = await import('../src/savedViews.js');
+      const { removed, views } = await savedViews.deleteView(sparkleDataPath, body.name);
+      if (removed) {
+        broadcastSSE('viewsUpdated', {});
+      }
+      sendJSON(res, 200, { success: true, removed, views });
       return;
     }
 
@@ -1984,13 +2110,22 @@ async function main() {
       console.log('Daemon is ready.');
       if (logger) logger.info('Daemon ready, port file written');
 
-      // Perform initial fetch in background (non-blocking)
-      if (logger) logger.info('Starting initial fetch in background');
-      performFetch().then(() => {
+      // Reconciliation + aggregate validation. Deliberately AFTER the port file is
+      // written: the CLI waits on that file, so anything run before it is time the user
+      // spends staring at a launching daemon. Both are safe to run against a live server.
+      if (logger) logger.info('Starting deferred startup work in background');
+      deferredStartupPromise = runDeferredStartupWork();
+      deferredStartupPromise.then(() => {
+        if (logger) logger.info('Deferred startup work complete');
+
+        // Initial fetch runs after reconciliation so the two do not race on the worktree.
+        if (logger) logger.info('Starting initial fetch in background');
+        return performFetch();
+      }).then(() => {
         if (logger) logger.info('Background initial fetch complete');
       }).catch((error) => {
-        console.log('Background initial fetch failed (normal if offline):', error.message);
-        if (logger) logger.warn('Background initial fetch failed', { error: error.message });
+        console.log('Background startup work failed (normal if offline):', error.message);
+        if (logger) logger.warn('Background startup work failed', { error: error.message });
       });
     }
 
@@ -1998,6 +2133,37 @@ async function main() {
     if (logger) logger.info('Starting no-client timeout');
     startNoClientTimeout();
     if (logger) logger.info('Startup complete');
+  });
+
+  // Remove the port file however we leave.
+  //
+  // 'exit' covers ordinary returns and explicit process.exit() calls from every shutdown
+  // path (SIGINT, no-client timeout, port change, fatal errors) with one handler, so no
+  // future exit route can forget. It must be synchronous — async work does not run here.
+  process.on('exit', clearPortFileSync);
+
+  // SIGTERM has no default Node handler that would reach 'exit' cleanly, and SIGHUP is
+  // what a closing terminal sends. Both otherwise left the file behind.
+  process.on('SIGTERM', () => {
+    console.log('🔴 DAEMON EXIT REASON: SIGTERM signal received');
+    if (logger) logger.info('Daemon exiting', { reason: 'sigterm_signal' });
+    shuttingDown = true;
+    process.exit(0);
+  });
+  process.on('SIGHUP', () => {
+    console.log('🔴 DAEMON EXIT REASON: SIGHUP signal received');
+    if (logger) logger.info('Daemon exiting', { reason: 'sighup_signal' });
+    shuttingDown = true;
+    process.exit(0);
+  });
+
+  // A crash is exactly the case the PID check exists for, but if we are still alive
+  // enough to run this handler we can clean up properly rather than leave a stale file.
+  process.on('uncaughtException', (error) => {
+    console.error('🔴 DAEMON EXIT REASON: Uncaught exception');
+    console.error(error);
+    if (logger) logger.error('Daemon exiting', { reason: 'uncaught_exception', error: error.message });
+    process.exit(1);
   });
 
   // Graceful shutdown

@@ -29,6 +29,19 @@ export class LogServer {
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => this.handleRequest(req, res));
 
+      // The log server must NEVER keep the test process alive on its own.
+      //
+      // Several test files start it and forget to stop it. With multiple test files that
+      // leak sits in jest workers, which jest force-exits ("A worker process has failed
+      // to exit gracefully..."). But jest runs a SINGLE test file in-band — in the main
+      // process — where nothing force-exits, so one leaked listener made an isolated
+      // `--testPathPattern <file>` run hang indefinitely after all tests passed
+      // (verified with lsof: one TCP LISTEN, zero children). unref-ing the server, and
+      // every accepted socket, removes it from the set of handles the event loop waits
+      // on; it still serves requests normally for as long as the process runs.
+      this.server.unref();
+      this.server.on('connection', (socket) => socket.unref());
+
       this.server.listen(0, 'localhost', () => {
         this.port = this.server.address().port;
         console.log(`📡 Log server listening on port ${this.port}`);
@@ -113,6 +126,9 @@ export class LogServer {
   async stop() {
     if (this.server) {
       return new Promise((resolve) => {
+        // close() alone waits for idle keep-alive sockets to drain before its callback
+        // fires; drop them so a teardown never waits on a lingering connection.
+        this.server.closeAllConnections();
         this.server.close(() => {
           console.log(`📡 Log server stopped`);
           resolve();

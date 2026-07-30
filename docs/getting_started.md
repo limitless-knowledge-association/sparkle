@@ -469,9 +469,13 @@ Now that Sparkle is installed and configured:
 **Solution:**
 1. Check if it's already running:
    ```bash
-   # Check for sparkle-data/last_port.data file
+   # The file is JSON and records the owning process id:
+   #   {"port":62781,"pid":48213,"startedAt":"..."}
    cat .sparkle-worktree/sparkle-data/last_port.data
    ```
+   The daemon deletes this file when it stops, so its presence usually means a daemon is
+   up. After a hard kill it can linger — Sparkle checks the recorded `pid` and removes a
+   stale file automatically on the next command.
 2. If port exists, daemon is running - just open browser:
    ```bash
    open http://localhost:<port>/list_view.html
@@ -568,7 +572,7 @@ your-project/
 ├── .sparkle-worktree/           # Hidden worktree (in .gitignore)
 │   └── sparkle-data/            # Actual data files
 │       ├── *.json               # Item and event files
-│       └── last_port.data       # Current daemon port
+│       └── last_port.data       # Current daemon port + owning pid (JSON)
 └── node_modules/
     └── sparkle/                 # Installed package
 ```

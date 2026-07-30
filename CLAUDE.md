@@ -6,7 +6,8 @@
 - Only `npm test`, `npm run test:unit` and `npm run test:integration` run `bin/pretest-check.js`, which DOES require a porcelain working directory and a matching release tarball. Use those for verifying a real release, not for the edit->test loop.
 - Use `npm run release` only when actually cutting a release.
 - Notes kept during cyclic work still go in .notes/ (git ignored).
-- Never pipe a jest run through `head` -- the SIGPIPE kills jest mid-run, orphaning test daemons and leaving .integration_testing half-written so the next `rm -rf` races it. Use `tail`.
+- Never pipe a jest run through `head` -- the SIGPIPE kills jest mid-run, orphaning test daemons and leaving .integration_testing half-written so the next `rm -rf` races it. Don't pipe through `tail` either when diagnosing: tail prints nothing until EOF, so a hung jest is indistinguishable from a silent one (this masked a real teardown hang twice). Redirect to a file (`> run.log 2>&1`) and read the file.
+- Prefer `npm run test:all -- --testPathPattern <file>` over invoking jest directly: pretest:all does the `rm -rf .integration_testing`. Bare jest skips that clean; createTestEnvironment wipes each test's own directory first, so stale state won't fail a rerun, but orphan daemons and junk from aborted runs accumulate until the next npm-run.
 
 2. The main terms used:
 - client -- invoked in production version using `npx sparkle`

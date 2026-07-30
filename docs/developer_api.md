@@ -784,20 +784,46 @@ The HTTP REST API is provided by the Sparkle daemon (agent) and allows any appli
 
 ### Finding the Port
 
-The daemon writes its port to a file:
+The daemon writes its port, and the PID that owns it, to a file:
 
 ```bash
 cat .sparkle-worktree/sparkle-data/last_port.data
-# Output: 62781
+# Output: {"port":62781,"pid":48213,"startedAt":"2026-07-29T12:00:00.000Z"}
 ```
+
+The PID lets a reader tell a running daemon from one that died and left the file behind.
+The daemon removes the file on exit, but a hard kill can still leave it: check that the
+recorded process exists before trusting the port.
 
 **In code:**
 ```javascript
 import { readFileSync } from 'fs';
 
-const port = readFileSync('.sparkle-worktree/sparkle-data/last_port.data', 'utf8').trim();
+const { port, pid } = JSON.parse(
+  readFileSync('.sparkle-worktree/sparkle-data/last_port.data', 'utf8'));
+
+// Signal 0 sends nothing; it just asks whether the process exists.
+// Works on Linux, macOS and Windows.
+let alive = true;
+try { process.kill(pid, 0); } catch { alive = false; }
+if (!alive) throw new Error('Daemon is not running (stale port file)');
+
 const baseUrl = `http://localhost:${port}`;
 ```
+
+Sparkle ships this logic — prefer it over rolling your own:
+
+```javascript
+import { readLivePortFile } from 'sparkle/src/portFile.js';
+
+// Returns null (and deletes the file) if the owning process is gone.
+const info = await readLivePortFile('.sparkle-worktree/sparkle-data');
+const baseUrl = info ? `http://localhost:${info.port}` : null;
+```
+
+> **Older installs.** Before this format, the file held a bare integer. `readLivePortFile`
+> still reads those and reports them as `legacy: true`; Sparkle shuts that daemon down and
+> rewrites the file on next launch.
 
 ### Starting the Daemon
 
@@ -1622,8 +1648,9 @@ Here's a complete example of using the HTTP API to build a simple todo list:
 ```javascript
 import { readFileSync } from 'fs';
 
-// Get port
-const port = readFileSync('.sparkle-worktree/sparkle-data/last_port.data', 'utf8').trim();
+// Get port (the file is JSON: {"port":…,"pid":…})
+const { port } = JSON.parse(
+  readFileSync('.sparkle-worktree/sparkle-data/last_port.data', 'utf8'));
 const baseUrl = `http://localhost:${port}`;
 
 // Helper function

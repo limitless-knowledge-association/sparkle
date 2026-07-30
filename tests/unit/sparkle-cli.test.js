@@ -83,17 +83,23 @@ describe('Sparkle CLI', () => {
     // Get data directory path
     const dataDir = join(clonePath, '.sparkle-worktree', 'sparkle-data');
 
-    // Import Sparkle class from the installed package
+    // Import the real Sparkle API from the installed package — the same module the daemon
+    // uses. (This used to import a separate Sparkle class that no production code ran.)
     stepStart = Date.now();
-    const sparklePath = join(clonePath, 'node_modules/sparkle/src/sparkle-class.js');
-    const { Sparkle } = await import(pathToFileURL(sparklePath).href);
+    const sparklePath = join(clonePath, 'node_modules/sparkle/src/sparkle.js');
+    const aggregatePath = join(clonePath, 'node_modules/sparkle/src/aggregateManager.js');
+    const sparkle = await import(pathToFileURL(sparklePath).href);
+    const aggregateManager = await import(pathToFileURL(aggregatePath).href);
     console.log(`[SETUP] import Sparkle: ${Date.now() - stepStart}ms`);
 
-    // Create Sparkle instance and start it
+    // Point it at this clone's data directory. No git scheduler is injected, so seeding
+    // writes event files without committing — git stays owned by the daemon.
     stepStart = Date.now();
-    const sparkle = new Sparkle(dataDir);
-    await sparkle.start();
-    console.log(`[SETUP] sparkle.start(): ${Date.now() - stepStart}ms`);
+    sparkle.setBaseDirectory(dataDir);
+    sparkle.setAggregateManager(aggregateManager);
+    sparkle.setGitScheduler(null);
+    await aggregateManager.initializeAggregateStore(dataDir);
+    console.log(`[SETUP] sparkle init: ${Date.now() - stepStart}ms`);
 
     // Create test items using library directly
     stepStart = Date.now();
@@ -412,6 +418,134 @@ describe('Sparkle CLI', () => {
         expect(result).toHaveProperty('tagline');
         expect(result.tagline).toBe('Another new item');
         expect(result.itemId).toMatch(/^\d{8}$/);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+  });
+
+  describe('Entry sequence numbers and --entry', () => {
+    test('cat numbers entries in creation order starting at 1', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-seq-numbering');
+
+      try {
+        await execAsync(`echo "First note" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+        await execAsync(`echo "Second note" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+        await execAsync(`echo "Third note" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+
+        const { stdout } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+
+        // setupTestData seeds each item with an initial entry, so the three added above
+        // are not necessarily #1-#3 — what matters is that each is numbered and that the
+        // numbers ascend with creation order.
+        const seqOf = (text) => {
+          const line = stdout.split('\n').find((l, i, arr) => arr[i + 1]?.includes(text));
+          const match = line && line.match(/#(\d+)/);
+          return match ? Number(match[1]) : null;
+        };
+
+        const first = seqOf('First note');
+        const second = seqOf('Second note');
+        const third = seqOf('Third note');
+
+        expect(first).not.toBeNull();
+        expect(second).toBe(first + 1);
+        expect(third).toBe(second + 1);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry prints just that entry', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-select');
+
+      try {
+        await execAsync(`echo "Alpha entry" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+        await execAsync(`echo "Bravo entry" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+
+        const { stdout: full } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir}`);
+        const bravoLine = full.split('\n').find((l, i, arr) => arr[i + 1]?.includes('Bravo entry'));
+        const bravoSeq = Number(bravoLine.match(/#(\d+)/)[1]);
+
+        const { stdout } = await execAsync(
+          `node ${CLI_PATH} cat ${item1} ${dataDir} --entry ${bravoSeq}`);
+
+        expect(stdout).toContain('Bravo entry');
+        expect(stdout).not.toContain('Alpha entry');
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry with --json returns the entry object', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-select-json');
+
+      try {
+        await execAsync(`echo "JSON target" | node ${CLI_PATH} add-entry ${item1} ${dataDir}`);
+
+        const { stdout: allJson } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir} --json`);
+        const entries = JSON.parse(allJson).entries;
+        const target = entries.find(e => e.text.includes('JSON target'));
+        expect(target.seq).toBeGreaterThan(0);
+
+        const { stdout } = await execAsync(
+          `node ${CLI_PATH} cat ${item1} ${dataDir} --entry ${target.seq} --json`);
+
+        const result = JSON.parse(stdout);
+        expect(result.itemId).toBe(item1);
+        expect(result.entry.text).toContain('JSON target');
+        expect(result.entry.seq).toBe(target.seq);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry accepts the --entry=n form', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-equals-form');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir} --entry=1 --json`);
+        const result = JSON.parse(stdout);
+        expect(result.entry.seq).toBe(1);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry does not swallow the location argument', async () => {
+      // Regression guard: the location is "the first argument not starting with --", so
+      // `--entry 1` used to make the "1" look like a data directory.
+      const { env, dataDir, item1 } = await setupTestData('entry-location-order');
+
+      try {
+        const { stdout } = await execAsync(`node ${CLI_PATH} cat ${item1} --entry 1 ${dataDir} --json`);
+        const result = JSON.parse(stdout);
+        expect(result.itemId).toBe(item1);
+        expect(result.entry.seq).toBe(1);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry out of range fails with a helpful message', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-out-of-range');
+
+      try {
+        await expect(
+          execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir} --entry 999`)
+        ).rejects.toThrow(/no entry 999.*valid range/is);
+      } finally {
+        await cleanupEnvironment(env.testDir);
+      }
+    }, 60000);
+
+    test('--entry rejects a non-numeric value', async () => {
+      const { env, dataDir, item1 } = await setupTestData('entry-bad-value');
+
+      try {
+        await expect(
+          execAsync(`node ${CLI_PATH} cat ${item1} ${dataDir} --entry abc`)
+        ).rejects.toThrow(/Invalid --entry value/i);
       } finally {
         await cleanupEnvironment(env.testDir);
       }

@@ -538,6 +538,44 @@ class GraphControlsComponent extends Component {
  * Entries Component - Manages entry list and new entry input
  * Dirty-aware: notifies parent when text is typed
  */
+/**
+ * Build the "Previous Entries" section.
+ *
+ * Entries are rendered newest-first, but the `#` shown against each one is its `seq` —
+ * a 1-based CREATION-order number scoped to the item, assigned when the aggregate is
+ * generated. So the column counts DOWN the screen, and entry #3 stays entry #3 however
+ * the list is ordered. That stability is the point: it gives the CLI and the browser a
+ * shared, unambiguous way to refer to one entry.
+ *
+ * @param {Array} entries - Entries in creation order (oldest first)
+ * @returns {string} HTML for the section
+ */
+function buildEntriesSectionHtml(entries) {
+  let html = '<div class="section mt-md">';
+  html += '<h3 class="section-header">Previous Entries</h3>';
+  html += '<ul class="item-list">';
+
+  // Index before reversing so the fallback matches creation order, not display order.
+  const inCreationOrder = entries.map((entry, index) => ({
+    entry,
+    seq: entry.seq ?? (index + 1)
+  }));
+
+  for (const { entry, seq } of inCreationOrder.reverse()) {
+    html += `<li class="item-list-item">`;
+    html += `<div class="text-small text-muted mb-sm">`;
+    html += `<span class="entry-seq">#${seq}</span> `;
+    html += `${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}`;
+    html += `</div>`;
+    html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
+    html += `</li>`;
+  }
+
+  html += '</ul>';
+  html += '</div>';
+  return html;
+}
+
 class EntriesComponent extends Component {
   render(data) {
     let html = `
@@ -552,19 +590,9 @@ class EntriesComponent extends Component {
         </div>
       </div>`;
 
-    // Existing entries (reversed to show newest first)
+    // Existing entries (rendered newest first)
     if (data.entries && data.entries.length > 0) {
-      html += '<div class="section mt-md">';
-      html += '<h3 class="section-header">Previous Entries</h3>';
-      html += '<ul class="item-list">';
-      for (const entry of [...data.entries].reverse()) {
-        html += `<li class="item-list-item">`;
-        html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
-        html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
-        html += `</li>`;
-      }
-      html += '</ul>';
-      html += '</div>';
+      html += buildEntriesSectionHtml(data.entries);
     }
 
     this.container.innerHTML = html;
@@ -638,17 +666,7 @@ class EntriesComponent extends Component {
     const entriesSection = this.container.querySelectorAll('.section')[1]; // Second section is the entries list
 
     if (data.entries && data.entries.length > 0) {
-      let html = '<div class="section mt-md">';
-      html += '<h3 class="section-header">Previous Entries</h3>';
-      html += '<ul class="item-list">';
-      for (const entry of [...data.entries].reverse()) {
-        html += `<li class="item-list-item">`;
-        html += `<div class="text-small text-muted mb-sm">${escapeHtml(entry.person.name)} - ${new Date(entry.person.timestamp).toLocaleString()}</div>`;
-        html += `<div class="entry-text">${escapeHtml(entry.text)}</div>`;
-        html += `</li>`;
-      }
-      html += '</ul>';
-      html += '</div>';
+      const html = buildEntriesSectionHtml(data.entries);
 
       if (entriesSection) {
         entriesSection.outerHTML = html;
@@ -1075,6 +1093,14 @@ function injectItemEditorStyles() {
   style.id = 'itemEditorStyles';
   style.textContent = `
     /* Item Editor Specific Styles */
+
+    /* Entry sequence number - a stable, referenceable creation-order index.
+       Monospace and dimmed so it reads as a reference marker, not as content. */
+    .entry-seq {
+      font-family: monospace;
+      color: var(--text-secondary);
+      opacity: 0.75;
+    }
 
     /* Header ID badge styling */
     .item-editor-header-id {

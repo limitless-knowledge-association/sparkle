@@ -15,7 +15,7 @@ import { mkdir } from 'fs/promises';
 import playwright from 'playwright';
 import {
   createTestEnvironment, installSparkle, initializeSparkle, getTarballPath,
-  startDaemon, stopDaemon, startLogServer, createTestId, cleanupEnvironment
+  startDaemon, stopDaemon, startLogServer, stopLogServer, createTestId, cleanupEnvironment
 } from '../helpers/test-helpers.js';
 
 const { chromium } = playwright;
@@ -39,6 +39,7 @@ describe('Browser header buttons work in all primary views', () => {
   }, 240000);
 
   afterAll(async () => {
+    await stopLogServer(); // open HTTP handle; leaking it hangs isolated runs
     if (ctx.browser) await ctx.browser.close().catch(() => {});
     if (ctx.port) await stopDaemon(ctx.port).catch(() => {});
     if (ctx.env) await cleanupEnvironment(ctx.env.testDir);

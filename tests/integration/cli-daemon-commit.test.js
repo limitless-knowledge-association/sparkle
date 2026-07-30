@@ -102,10 +102,10 @@ describe('CLI writes go through the daemon and are committed + pushed (RED until
   afterAll(async () => {
     // Best-effort: stop any daemon the CLI launched, then remove the env.
     try {
-      const portFile = join(ctx.dataDir || '', 'last_port.data');
-      if (ctx.dataDir && existsSync(portFile)) {
-        const { readFileSync } = await import('fs');
-        const port = parseInt(readFileSync(portFile, 'utf8').trim(), 10);
+      const { readPortFile } = await import('../../src/portFile.js');
+      const info = ctx.dataDir ? await readPortFile(ctx.dataDir) : null;
+      if (info) {
+        const port = info.port;
         const http = (await import('http')).default;
         await new Promise((resolve) => {
           const req = http.request({ hostname: 'localhost', port, path: '/api/shutdown', method: 'POST' }, () => resolve());
@@ -176,10 +176,14 @@ describe('CLI writes go through the daemon and are committed + pushed (RED until
   }, 60000);
 
   test('a daemon was launched/used by the CLI write', async () => {
-    const portFile = join(ctx.dataDir, 'last_port.data');
-    expect(existsSync(portFile)).toBe(true);
-    const { readFileSync } = await import('fs');
-    const port = parseInt(readFileSync(portFile, 'utf8').trim(), 10);
-    expect(await ping(port)).toBe(true);
-  });
+    const { readPortFile } = await import('../../src/portFile.js');
+    const info = await readPortFile(ctx.dataDir);
+
+    // The port file records the owning PID alongside the port, so a crashed daemon can be
+    // told from a running one. Assert both, then confirm the daemon actually answers.
+    expect(info).not.toBeNull();
+    expect(info.legacy).toBe(false);
+    expect(Number.isInteger(info.pid)).toBe(true);
+    expect(await ping(info.port)).toBe(true);
+  }, 15000);
 });

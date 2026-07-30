@@ -8,8 +8,8 @@
 
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { existsSync } from 'fs';
 import http from 'http';
+import { readLivePortFile } from '../src/portFile.js';
 
 async function getGitRoot() {
   const { execSync } = await import('child_process');
@@ -34,15 +34,18 @@ async function main() {
 
     const config = packageJson.sparkle_config;
     const worktreePath = config.worktree_path || '.sparkle-worktree';
-    const portFilePath = join(gitRoot, worktreePath, config.directory, 'last_port.data');
+    const dataDir = join(gitRoot, worktreePath, config.directory);
 
-    if (!existsSync(portFilePath)) {
+    // readLivePortFile removes the file when the recorded PID is gone, so a daemon that
+    // crashed no longer reports itself as running here.
+    const info = await readLivePortFile(dataDir);
+
+    if (!info) {
       console.error('Sparkle daemon does not appear to be running (no port file found).');
       process.exit(1);
     }
 
-    const portData = await readFile(portFilePath, 'utf8');
-    const port = parseInt(portData.trim(), 10);
+    const port = info.port;
 
     console.log(`Sending shutdown request to daemon on port ${port}...`);
 

@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { readFile, writeFile, appendFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import http from 'http';
+import { readLivePortFile } from '../src/portFile.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -95,17 +96,21 @@ async function checkAndShutdownOldDaemon() {
 
     const config = packageJson.sparkle_config;
     const worktreePath = config.worktree_path || '.sparkle-worktree';
-    const portFilePath = join(gitRoot, worktreePath, config.directory, 'last_port.data');
-    log(`Looking for port file: ${portFilePath}`);
+    const dataDir = join(gitRoot, worktreePath, config.directory);
+    log(`Looking for port file in: ${dataDir}`);
 
-    if (!existsSync(portFilePath)) {
+    // Tolerates both the current JSON format and the legacy bare integer, since the
+    // daemon still running here belongs to the version being REPLACED. readLivePortFile
+    // also clears the file outright if that daemon has crashed.
+    const info = await readLivePortFile(dataDir);
+
+    if (!info) {
       log('No port file found - daemon not running');
       return; // No daemon running
     }
 
-    const portData = await readFile(portFilePath, 'utf8');
-    const port = parseInt(portData.trim(), 10);
-    log(`Found daemon on port: ${port}`);
+    const port = info.port;
+    log(`Found daemon on port: ${port}${info.legacy ? ' (legacy port file)' : ''}`);
 
     // Always send shutdown on install (simpler, more reliable)
     log('Sending shutdown request to daemon...');

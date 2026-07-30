@@ -152,6 +152,20 @@ export async function createTestEnvironment(baseDir, testName, numClones = 1, te
   const sanitizedName = testName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const testDir = join(baseDir, sanitizedName);
 
+  // Start from a clean slate even when a previous run left this directory behind.
+  //
+  // Test names are fixed per test (not per run), so `git clone` into a leftover tree
+  // fails with "destination path already exists". That only bites when jest is invoked
+  // directly — the npm scripts' pretest does `rm -rf .integration_testing` — but a
+  // hand-narrowed rerun during diagnosis is exactly when a spurious failure is most
+  // misleading. Shut down any orphan daemon rooted here first so we never delete a
+  // worktree out from under a live process (per-test scope keeps this well inside the
+  // only-kill-under-.integration_testing rule).
+  if (existsSync(testDir)) {
+    await stopAllDaemonsUnder(testDir);
+    await rm(testDir, { recursive: true, force: true });
+  }
+
   // Create test directory
   await mkdir(testDir, { recursive: true });
 
@@ -399,14 +413,17 @@ export async function startDaemon(dir, testId, blockPush = false) {
  * @returns {Promise<number>} Port number
  */
 async function waitForDaemon(dir, timeout = 10000) {
-  const portFile = join(dir, '.sparkle-worktree/sparkle-data/last_port.data');
+  const dataDir = join(dir, '.sparkle-worktree/sparkle-data');
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
     try {
-      const { readFile } = await import('fs/promises');
-      const portData = await readFile(portFile, 'utf8');
-      const port = parseInt(portData.trim(), 10);
+      const { readPortFile } = await import('../../src/portFile.js');
+      const info = await readPortFile(dataDir);
+      if (!info) {
+        throw new Error('port file not ready');
+      }
+      const port = info.port;
 
       // Verify daemon is responding
       const responding = await checkDaemon(port);
@@ -507,8 +524,12 @@ export async function stopAllDaemonsUnder(rootDir) {
 
   for (const pf of portFiles) {
     try {
-      const port = parseInt((await readFile(pf, 'utf8')).trim(), 10);
-      if (Number.isInteger(port)) await shutdownPort(port);
+      // dirname(pf) is the data directory; readPortFile handles both the current JSON
+      // format and the legacy bare integer.
+      const { readPortFile } = await import('../../src/portFile.js');
+      const { dirname } = await import('path');
+      const info = await readPortFile(dirname(pf));
+      if (info) await shutdownPort(info.port);
     } catch { /* ignore */ }
   }
 

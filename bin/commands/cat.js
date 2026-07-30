@@ -6,7 +6,13 @@
 
 import { ensureDaemon } from '../../src/cliDaemonLauncher.js';
 import { makeApiRequest } from '../../src/daemonClient.js';
-import { hasJsonFlag, validateItemId, getDataDirectory } from '../lib/helpers.js';
+import {
+  hasJsonFlag,
+  validateItemId,
+  getDataDirectory,
+  getEntrySeq,
+  selectEntryBySeq
+} from '../lib/helpers.js';
 
 // Check if verbose logging is enabled
 const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
@@ -19,6 +25,7 @@ const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
 export async function catCommand(itemId, location) {
   const totalStartTime = Date.now();
   const useJson = hasJsonFlag();
+  const entrySeq = getEntrySeq(useJson);
 
   // Validate itemId format
   validateItemId(itemId, useJson);
@@ -34,6 +41,42 @@ export async function catCommand(itemId, location) {
   const details = await makeApiRequest(port, '/api/getItemDetails', 'POST', { itemId });
   const fetchDuration = Date.now() - fetchStartTime;
   if (!useJson && VERBOSE) console.error(`[CLI] Fetched item details via daemon (${fetchDuration}ms)`);
+
+  // --entry <n>: print just that one entry and stop. Entry numbers are the stable,
+  // 1-based creation-order `seq` shown by a plain `cat`, so a number read out of one
+  // command can be fed straight back into the next.
+  if (entrySeq !== null) {
+    const entry = selectEntryBySeq(details.entries, entrySeq);
+    const total = (details.entries || []).length;
+
+    if (!entry) {
+      const msg = total === 0
+        ? `Item ${itemId} has no entries`
+        : `Item ${itemId} has no entry ${entrySeq} (valid range: 1-${total})`;
+      if (useJson) {
+        console.log(JSON.stringify({ error: msg, itemId, entryCount: total }));
+      } else {
+        console.error(`Error: ${msg}`);
+      }
+      process.exit(1);
+    }
+
+    if (useJson) {
+      console.log(JSON.stringify({ itemId, entry }));
+      return;
+    }
+
+    const timestamp = entry.person?.timestamp || entry.timestamp;
+    const date = timestamp ? new Date(timestamp).toLocaleString() : 'unknown date';
+    const author = entry.person?.name || entry.author || 'unknown';
+    console.log('');
+    console.log(`Item ${itemId} — entry ${entrySeq} of ${total}`);
+    console.log(`[${date}] ${author}`);
+    console.log('');
+    console.log(entry.text);
+    console.log('');
+    return;
+  }
 
   // JSON output
   if (useJson) {
@@ -128,11 +171,15 @@ export async function catCommand(itemId, location) {
   // Entries
   if (details.entries && details.entries.length > 0) {
     console.log(`\nEntries (${details.entries.length}):`);
-    for (const entry of details.entries) {
+    for (const [index, entry] of details.entries.entries()) {
       const timestamp = entry.person?.timestamp || entry.timestamp;
       const date = timestamp ? new Date(timestamp).toLocaleString() : 'unknown date';
       const author = entry.person?.name || entry.author || 'unknown';
-      console.log(`\n  [${date}] ${author}`);
+      // seq is 1-based creation order, scoped to this item, so it can be referenced
+      // unambiguously ("entry 3 of item 44332211"). Fall back to position for aggregates
+      // written before seq existed and not yet rebuilt.
+      const seq = entry.seq ?? (index + 1);
+      console.log(`\n  #${seq} [${date}] ${author}`);
       console.log(`  ${entry.text}`);
     }
   }

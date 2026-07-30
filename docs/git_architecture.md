@@ -655,7 +655,7 @@ your-project/                      (Your application root)
 │       ├── 12345678.entry.*.json
 │       ├── 23456789.json
 │       ├── statuses.json
-│       └── last_port.data         (Not committed - runtime data)
+│       └── last_port.data         (Not committed - runtime data: port + owning pid)
 │
 ├── src/                           (Your application code)
 ├── package.json                   (Contains sparkle_config)

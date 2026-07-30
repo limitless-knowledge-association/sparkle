@@ -468,27 +468,35 @@ export function initializeHeader(options = {}) {
  * Loads primaryViews.js and populates the dropdown with available views
  */
 async function populatePrimaryViewsDropdown() {
+  const selector = document.getElementById('viewSelector');
+  if (!selector) return;
+
   try {
-    // Dynamically import the generated primaryViews.js
+    // Built-in pages come from the generated primaryViews.js (built at pack time by
+    // bin/generate-primary-views.js). Saved views are loaded at RUNTIME and merged in
+    // below, which is why this list can no longer be treated as static.
     const { primaryViews } = await import('./primaryViews.js');
+    const savedViewsModule = await import('./savedViews.js');
+    const saved = await savedViewsModule.listViews();
 
-    const selector = document.getElementById('viewSelector');
-    if (!selector) return;
-
-    // Get current page filename for highlighting
     const currentPage = window.location.pathname.split('/').pop();
+    const activeView = new URLSearchParams(window.location.search)
+      .get(savedViewsModule.VIEW_PARAM);
 
-    // Clear existing options except the first one
     selector.innerHTML = '<option value="">Switch View...</option>';
 
-    // Add all primary views
+    // Page options keep value === the page URL. Saved views and actions are told apart by
+    // a data-kind attribute rather than a value prefix, so the long-standing
+    // `option[value="status_files.html"]` contract still holds.
     for (const view of primaryViews) {
       const option = document.createElement('option');
       option.value = view.url;
+      option.dataset.kind = 'page';
       option.textContent = view.name;
 
-      // Disable current view but don't mark it as "(current)"
-      if (view.url === currentPage) {
+      // Only "current" when we are on that page with no saved view applied — landing via
+      // a saved view means the plain page is still somewhere worth navigating to.
+      if (view.url === currentPage && !activeView) {
         option.disabled = true;
         option.selected = true;
       }
@@ -496,23 +504,83 @@ async function populatePrimaryViewsDropdown() {
       selector.appendChild(option);
     }
 
-    // Handle selection changes
-    selector.addEventListener('change', (e) => {
-      const selectedUrl = e.target.value;
-      if (selectedUrl) {
-        window.location.href = selectedUrl;
+    if (saved.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Saved Views';
+
+      for (const view of saved) {
+        const option = document.createElement('option');
+        option.value = view.name;
+        option.dataset.kind = 'saved';
+        option.textContent = view.name;
+        if (activeView && view.name.toLowerCase() === activeView.toLowerCase()) {
+          option.selected = true;
+        }
+        group.appendChild(option);
       }
-    });
+
+      selector.appendChild(group);
+    }
+
+    const actions = document.createElement('optgroup');
+    actions.label = 'Manage';
+    for (const [action, label] of [
+      ['save', 'Save current view as…'],
+      ['manage', 'Manage saved views…']
+    ]) {
+      const option = document.createElement('option');
+      option.value = action;
+      option.dataset.kind = 'action';
+      option.textContent = label;
+      actions.appendChild(option);
+    }
+    selector.appendChild(actions);
+
+    // Replace rather than add: this function re-runs whenever the saved view list
+    // changes, and a fresh listener each time would fire once per rebuild.
+    selector.onchange = async (e) => {
+      const option = e.target.selectedOptions[0];
+      if (!option || !option.value) return;
+
+      const kind = option.dataset.kind;
+
+      if (kind === 'page') {
+        window.location.href = option.value;
+        return;
+      }
+
+      if (kind === 'saved') {
+        const view = saved.find(v => v.name === option.value);
+        if (view) savedViewsModule.goToView(view);
+        return;
+      }
+
+      // Reset the selection so the action label does not linger as the chosen option.
+      const action = option.value;
+      e.target.value = '';
+
+      const { openSaveViewModal, openManageViewsModal } = await import('./saved-views-modal.js');
+      if (action === 'save') {
+        openSaveViewModal();
+      } else if (action === 'manage') {
+        openManageViewsModal();
+      }
+    };
 
   } catch (error) {
     console.error('Failed to load primary views:', error);
     // If primaryViews.js doesn't exist yet, show a helpful message
-    const selector = document.getElementById('viewSelector');
-    if (selector) {
-      selector.innerHTML = '<option value="">No views available</option>';
-      selector.disabled = true;
-    }
+    selector.innerHTML = '<option value="">No views available</option>';
+    selector.disabled = true;
   }
+}
+
+/**
+ * Rebuild the view dropdown. Called after a saved view is added or removed so the list
+ * reflects the change without a page reload.
+ */
+export async function refreshViewSelector() {
+  await populatePrimaryViewsDropdown();
 }
 
 /**
@@ -622,6 +690,17 @@ export function connectToServer(eventHandlers = {}) {
   eventSource.addEventListener('aggregatesUpdated', function(e) {
     console.log('SSE aggregatesUpdated received, publishing to subscribers');
     publishEvent('aggregatesUpdated', e);
+  });
+
+  // Saved views changed somewhere — possibly in another window, since the header's
+  // "New Window" button makes multiple clients on one daemon a normal situation.
+  // Rebuild this window's dropdown so it does not keep offering a deleted view.
+  eventSource.addEventListener('viewsUpdated', function(e) {
+    console.log('SSE viewsUpdated received, refreshing view selector');
+    if (document.getElementById('viewSelector')) {
+      populatePrimaryViewsDropdown();
+    }
+    publishEvent('viewsUpdated', e);
   });
 
   // Handle rebuild events

@@ -22,7 +22,8 @@ const SYSTEM_DEFAULTS = {
     ignored: 'not-ignored',
     taken: 'all'
   },
-  port: null // null = use ephemeral port (default), number = fixed port for bookmarkable URLs
+  port: null, // null = use ephemeral port (default), number = fixed port for bookmarkable URLs
+  daemonLaunchTimeoutMs: 30000 // How long a CLI command waits for a daemon it just launched
 };
 
 /**
@@ -51,7 +52,8 @@ export async function loadProjectConfig(baseDirectory) {
         ignored: null,
         taken: null
       },
-      port: null
+      port: null,
+      daemonLaunchTimeoutMs: null
     };
   }
 
@@ -67,7 +69,8 @@ export async function loadProjectConfig(baseDirectory) {
         ignored: config.filters?.ignored ?? null,
         taken: config.filters?.taken ?? null
       },
-      port: config.port ?? null
+      port: config.port ?? null,
+      daemonLaunchTimeoutMs: config.daemonLaunchTimeoutMs ?? null
     };
   } catch (error) {
     console.error('Error loading project config:', error);
@@ -80,7 +83,8 @@ export async function loadProjectConfig(baseDirectory) {
         ignored: null,
         taken: null
       },
-      port: null
+      port: null,
+      daemonLaunchTimeoutMs: null
     };
   }
 }
@@ -102,7 +106,8 @@ export async function saveProjectConfig(baseDirectory, config) {
       ignored: config.filters?.ignored ?? null,
       taken: config.filters?.taken ?? null
     },
-    port: config.port ?? null
+    port: config.port ?? null,
+    daemonLaunchTimeoutMs: config.daemonLaunchTimeoutMs ?? null
   };
 
   await writeJsonFile(configPath, configToSave);
@@ -155,6 +160,8 @@ export async function getMergedConfig(baseDirectory, localConfig = null) {
   };
 
   // Apply precedence for each setting (no customStatuses - those stay in statuses.json)
+  // port and daemonLaunchTimeoutMs are project-level only — neither is meaningful per
+  // browser, and the launch timeout is read by the CLI before any browser exists.
   return {
     darkMode: resolveConfigValue(project.darkMode, local.darkMode, defaults.darkMode),
     filters: {
@@ -162,7 +169,44 @@ export async function getMergedConfig(baseDirectory, localConfig = null) {
       monitor: resolveConfigValue(project.filters.monitor, local.filters.monitor, defaults.filters.monitor),
       ignored: resolveConfigValue(project.filters.ignored, local.filters.ignored, defaults.filters.ignored),
       taken: resolveConfigValue(project.filters.taken, local.filters.taken, defaults.filters.taken)
-    }
+    },
+    port: resolveConfigValue(project.port, null, defaults.port),
+    daemonLaunchTimeoutMs: resolveConfigValue(
+      project.daemonLaunchTimeoutMs, null, defaults.daemonLaunchTimeoutMs)
   };
+}
+
+/**
+ * Resolve how long a CLI command should wait for a daemon it just launched.
+ *
+ * Precedence: SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS env var > project config > 30s default.
+ * The env var wins so a slow machine or a CI run can override without editing the repo's
+ * config; the project config is read straight off disk because this runs before (and in
+ * order to) reach a daemon, so it cannot go through the daemon API.
+ *
+ * @param {string} dataDir - Sparkle data directory
+ * @returns {Promise<number>} Timeout in milliseconds
+ */
+export async function getDaemonLaunchTimeoutMs(dataDir) {
+  const fromEnv = process.env.SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS;
+  if (fromEnv !== undefined && fromEnv !== '') {
+    const parsed = Number(fromEnv);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+    console.error(`[config] Ignoring invalid SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS: ${fromEnv}`);
+  }
+
+  try {
+    const project = await loadProjectConfig(dataDir);
+    const configured = Number(project.daemonLaunchTimeoutMs);
+    if (Number.isFinite(configured) && configured > 0) {
+      return configured;
+    }
+  } catch (error) {
+    // Fall through to the default — a missing/unreadable config must not block a launch.
+  }
+
+  return SYSTEM_DEFAULTS.daemonLaunchTimeoutMs;
 }
 

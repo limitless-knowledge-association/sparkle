@@ -359,8 +359,15 @@ function getCurrentStatus(files) {
 
 /**
  * Get all entries in chronological order
+ *
+ * Each entry carries a `seq`: a 1-based position in CREATION order, scoped to the item.
+ * The oldest entry is 1 and newer entries have higher numbers, so a seq always refers to
+ * the same entry no matter how a view chooses to sort or filter. It is a derived, static
+ * attribute of the generated aggregate — it is NOT stored in the event files and cannot
+ * be edited. The browser renders entries newest-first, so the column reads downward.
+ *
  * @param {Array} files - Array of {filename, data} objects
- * @returns {Array<Object>} Array of entry data objects
+ * @returns {Array<Object>} Array of entry data objects, each with a `seq`
  */
 function getEntries(files) {
   const entryFiles = files.filter(f => {
@@ -375,7 +382,7 @@ function getEntries(files) {
     return aTime.localeCompare(bTime);
   });
 
-  return entryFiles.map(f => f.data);
+  return entryFiles.map((f, index) => ({ ...f.data, seq: index + 1 }));
 }
 
 /**

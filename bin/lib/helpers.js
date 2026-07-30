@@ -79,6 +79,78 @@ export function hasJsonFlag() {
 }
 
 /**
+ * Flags that consume the argument after them (`--entry 3`).
+ *
+ * Exported because argument scanning elsewhere must skip a flag's VALUE as well as the
+ * flag itself — otherwise `sparkle cat 12345678 --entry 3` reads the "3" as a data
+ * directory, since it does not start with `--`.
+ */
+export const VALUE_FLAGS = new Set(['--entry']);
+
+/**
+ * Read the value of a value-taking flag. Accepts `--entry 3` and `--entry=3`.
+ * @param {string} name - Flag name including leading dashes
+ * @returns {string|undefined} The raw value, or undefined if the flag is absent
+ */
+export function getFlagValue(name) {
+  const argv = process.argv;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === name) {
+      return argv[i + 1];
+    }
+    if (arg.startsWith(`${name}=`)) {
+      return arg.slice(name.length + 1);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Parse and validate the --entry flag: a 1-based entry sequence number.
+ *
+ * @param {boolean} useJson - Whether to emit errors as JSON
+ * @returns {number|null} The requested seq, or null when --entry was not supplied
+ */
+export function getEntrySeq(useJson = false) {
+  const raw = getFlagValue('--entry');
+
+  if (raw === undefined) {
+    return null;
+  }
+
+  const seq = Number(raw);
+  if (!Number.isInteger(seq) || seq < 1) {
+    const msg = `Invalid --entry value: ${raw === undefined ? '(missing)' : raw}. Expected a whole number starting at 1.`;
+    if (useJson) {
+      console.log(JSON.stringify({ error: msg }));
+    } else {
+      console.error(`Error: ${msg}`);
+    }
+    process.exit(1);
+  }
+
+  return seq;
+}
+
+/**
+ * Select one entry from an item's entries by its seq.
+ *
+ * Falls back to positional index for aggregates written before seq existed and not yet
+ * rebuilt, so an older data directory still resolves `--entry 2` to the second entry.
+ *
+ * @param {Array} entries - Entries in creation order
+ * @param {number} seq - 1-based sequence number
+ * @returns {Object|null} The entry, or null if there is no such seq
+ */
+export function selectEntryBySeq(entries, seq) {
+  if (!Array.isArray(entries)) {
+    return null;
+  }
+  return entries.find((entry, index) => (entry.seq ?? (index + 1)) === seq) || null;
+}
+
+/**
  * Parse boolean value from string
  * Accepts: yes/no, true/false, 1/0 (case insensitive)
  * @param {string} value - Value to parse
@@ -197,6 +269,7 @@ export function showHelp() {
   console.log('');
   console.log('Read:');
   console.log('  npx sparkle cat <itemId> [--json]         Display item details');
+  console.log('  npx sparkle cat <itemId> --entry <n> [--json]  Display one entry by its number');
   console.log('  npx sparkle inspect <itemId> [--json]     Display item with full dependency chains');
   console.log('  npx sparkle list [search] [--json]        List all items (optionally filtered)');
   console.log('  npx sparkle find-item <search> [--json]   Search items by ID or tagline');
@@ -229,6 +302,12 @@ export function showHelp() {
   console.log('  monitoring <bool>      Set monitoring (yes/no, true/false, 1/0)');
   console.log('  visibility <bool>      Set visibility/ignored (yes=visible, no=hidden)');
   console.log('  responsibility <bool>  Take/release responsibility (yes/no, true/false, 1/0)');
+  console.log('');
+  console.log('Entry numbers:');
+  console.log('  Entries are numbered per item in creation order, starting at 1.');
+  console.log('  The number is shown as "#n" by cat and inspect, and is stable — it never');
+  console.log('  changes as entries are added, so it can be quoted and reused.');
+  console.log('  Read one back with: npx sparkle cat <itemId> --entry <n>');
   console.log('');
   console.log('Location (optional for most commands):');
   console.log('  Add [location] before --json to specify data directory');

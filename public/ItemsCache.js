@@ -14,7 +14,7 @@
  * - All UI views subscribe to onChange for updates
  */
 
-import { subscribeToEvent, apiCall } from './sparkle-common.js';
+import { subscribeToEvent, apiCall, showRebuildProgress } from './sparkle-common.js';
 
 export class ItemsCache {
   constructor() {
@@ -23,6 +23,7 @@ export class ItemsCache {
     this.allItemsWithDetails = new Map(); // Map of itemId -> full details
     this.pendingItemIds = new Set(); // Set of pending item IDs
     this.currentUserEmail = null; // Git user email (for monitor filtering)
+    this.rebuilding = false; // Daemon reported an aggregate rebuild in progress
 
     // Observer pattern
     this.changeSubscribers = new Set();
@@ -33,6 +34,7 @@ export class ItemsCache {
     // Track SSE unsubscribe functions
     this.unsubscribeAggregatesUpdated = null;
     this.unsubscribeRebuildCompleted = null;
+    this.unsubscribeDataUpdated = null;
   }
 
   /**
@@ -47,20 +49,41 @@ export class ItemsCache {
 
     console.log('ItemsCache: Initializing...');
 
-    // Load initial data
-    await this.loadAllItems();
-
-    // Subscribe to SSE events
+    // Subscribe to SSE events BEFORE the first load, not after.
+    //
+    // This ordering is the whole fix for "the browser comes up empty". The daemon used to
+    // answer 503 while rebuilding aggregates; loadAllItems() threw, the exception escaped
+    // initialize(), and these listeners were never registered — so the page had no way to
+    // ever recover and sat blank until a manual reload. Registering first means that even
+    // if the initial load fails, rebuildCompleted/dataUpdated will still repopulate us.
     this.setupSSEListeners();
+
+    // A failed first load must not abort initialization. Mark ourselves initialized either
+    // way so subscribers attach and later events are honoured.
+    try {
+      await this.loadAllItems();
+    } catch (error) {
+      console.error('ItemsCache: Initial load failed, will recover on next event:', error);
+    }
 
     this.initialized = true;
     console.log('ItemsCache: Initialized successfully', {
       itemCount: this.allItems.length,
-      pendingCount: this.pendingItemIds.size
+      pendingCount: this.pendingItemIds.size,
+      rebuilding: this.rebuilding
     });
 
     // Notify subscribers after initialization
     this.notifySubscribers();
+  }
+
+  /**
+   * Whether the daemon reported it is mid-rebuild. Views use this to show a read-only
+   * banner rather than presenting a partial list as if it were complete.
+   * @returns {boolean}
+   */
+  isRebuilding() {
+    return this.rebuilding;
   }
 
   /**
@@ -81,7 +104,21 @@ export class ItemsCache {
       this.allItems = allItemsResult.items;
       this.pendingItemIds = new Set(pendingResult.items);
 
-      console.log(`ItemsCache: Loaded ${this.allItems.length} items, ${this.pendingItemIds.size} pending (${Date.now() - loadStart}ms)`);
+      // The daemon serves whatever aggregates exist while it rebuilds, flagging the
+      // response rather than refusing it. Remember the flag so views can tell the list is
+      // provisional; rebuildCompleted will trigger a reload with the full set.
+      this.rebuilding = allItemsResult.rebuilding === true;
+
+      // Surface the existing rebuild overlay. It is normally opened by the rebuildStarted
+      // SSE event, but a page that LOADS mid-rebuild never saw that event — which is
+      // exactly the case this flag exists for. Without this the user would be shown a
+      // partial list with nothing indicating it was still filling in.
+      if (this.rebuilding) {
+        const progress = allItemsResult.progress || { current: 0, total: 0 };
+        showRebuildProgress(progress.current, progress.total, 'initialization');
+      }
+
+      console.log(`ItemsCache: Loaded ${this.allItems.length} items, ${this.pendingItemIds.size} pending (${Date.now() - loadStart}ms)${this.rebuilding ? ' [rebuild in progress]' : ''}`);
 
       // Get current user email by checking one item
       // This is efficient - we only need to fetch one item to get the git user
@@ -131,7 +168,34 @@ export class ItemsCache {
       await this.handleRebuildCompleted(e);
     });
 
+    // Subscribe to the generic data-changed event as a safety net.
+    //
+    // aggregatesUpdated is precise but conditional: the daemon only emits it when it can
+    // work out exactly which items changed. dataUpdated is emitted unconditionally on
+    // every fetch that brought new commits. Without this listener, any fetch that could
+    // not compute a changed-file set left this cache stale while the audit trail and
+    // status file views (which do listen to dataUpdated) carried on updating — the daemon
+    // looked healthy and only the item list silently froze.
+    this.unsubscribeDataUpdated = subscribeToEvent('dataUpdated', async () => {
+      await this.handleDataUpdated();
+    });
+
     console.log('ItemsCache: SSE listeners registered');
+  }
+
+  /**
+   * Handle the generic dataUpdated event by reloading the full item set.
+   * @private
+   */
+  async handleDataUpdated() {
+    console.log('ItemsCache: dataUpdated event, reloading all items');
+
+    try {
+      await this.loadAllItems();
+      this.notifySubscribers();
+    } catch (error) {
+      console.error('ItemsCache: Failed to handle dataUpdated:', error);
+    }
   }
 
   /**
@@ -191,6 +255,10 @@ export class ItemsCache {
    */
   async handleRebuildCompleted(e) {
     console.log('ItemsCache: rebuildCompleted event, reloading all items');
+
+    // The rebuild is over regardless of whether the reload below succeeds, so clear the
+    // flag first — otherwise a failed reload would leave views stuck showing the banner.
+    this.rebuilding = false;
 
     try {
       await this.loadAllItems();
@@ -322,6 +390,9 @@ export class ItemsCache {
     }
     if (this.unsubscribeRebuildCompleted) {
       this.unsubscribeRebuildCompleted();
+    }
+    if (this.unsubscribeDataUpdated) {
+      this.unsubscribeDataUpdated();
     }
     this.changeSubscribers.clear();
     console.log('ItemsCache: Destroyed');

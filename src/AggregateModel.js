@@ -436,28 +436,35 @@ export class AggregateModel {
   /**
    * Validate an aggregate against its events
    * @param {string} itemId - Item ID to validate
+   * @param {Map} [preloadedItemFiles] - Optional result of getAllItemFiles(). Pass it when
+   *   validating many items so the whole directory is scanned ONCE rather than once per
+   *   item — the per-item scan is what made validateAllAggregates O(items x eventFiles).
    * @returns {Promise<Object>} Validation result {valid: boolean, differences: Array}
    */
-  async validateAggregate(itemId) {
+  async validateAggregate(itemId, preloadedItemFiles = null) {
     this._ensureInitialized();
+
+    // `errors` mirrors `differences` throughout: callers of the old module-level
+    // aggregateManager read `.errors`, callers of this class read `.differences`.
+    const fail = (reason) => ({ valid: false, differences: [reason], errors: [reason] });
 
     const aggregate = await this.getAggregate(itemId);
     if (!aggregate) {
-      return { valid: false, differences: ['Aggregate does not exist'] };
+      return fail('Aggregate file not found');
     }
 
     // Get event files and rebuild state
-    const allItemFiles = await getAllItemFiles(this.baseDirectory);
+    const allItemFiles = preloadedItemFiles || await getAllItemFiles(this.baseDirectory);
     const itemFiles = allItemFiles.get(itemId);
 
     if (!itemFiles || itemFiles.length === 0) {
-      return { valid: false, differences: ['No event files found for item'] };
+      return fail('No event files found for item');
     }
 
     const rebuiltState = buildItemState(itemFiles);
 
     if (!rebuiltState) {
-      return { valid: false, differences: ['Could not rebuild state from events'] };
+      return fail('Could not rebuild state from events');
     }
 
     // Compare aggregate with rebuilt state
@@ -480,58 +487,155 @@ export class AggregateModel {
       differences.push(`dependencies: aggregate=${[...aggregateDeps].sort()}, rebuilt=${[...rebuiltDeps].sort()}`);
     }
 
+    // Entry count is the one thing the field comparison above cannot see, and it is
+    // exactly what drifts if an incremental update is ever applied twice or missed.
+    // Compared against the rebuilt state rather than the raw file count, so an event
+    // file that names two items doesn't read as a mismatch on either of them.
+    const aggregateEntries = (aggregate.entries || []).length;
+    const rebuiltEntries = (rebuiltState.entries || []).length;
+    if (aggregateEntries !== rebuiltEntries) {
+      differences.push(`entries: aggregate=${aggregateEntries}, rebuilt=${rebuiltEntries}`);
+    }
+
     return {
       valid: differences.length === 0,
-      differences
+      differences,
+      errors: differences
     };
   }
 
   /**
-   * Validate all aggregates
-   * @returns {Promise<Object>} Validation results {valid: number, invalid: Array}
+   * Validate all aggregates.
+   *
+   * Scans the event directory ONCE and reuses it across every item. The previous
+   * implementation re-scanned and re-parsed every event file for each item, which
+   * measured quadratic: ~15.8s of blocking work at only 200 items / 1200 event files.
+   *
+   * @returns {Promise<Object>} {valid: boolean, invalidItems: Array<{itemId, errors}>}
+   *   Shape matches what the daemon reads (`!status.valid`, `status.invalidItems.length`).
    */
   async validateAllAggregates() {
     this._ensureInitialized();
 
+    const startTime = Date.now();
     const aggregates = await this.getAllAggregates();
-    const invalid = [];
+    const allItemFiles = await getAllItemFiles(this.baseDirectory);
+    const invalidItems = [];
 
-    for (const aggregate of aggregates) {
-      const validation = await this.validateAggregate(aggregate.itemId);
+    // Check the UNION of items-that-have-events and items-that-have-an-aggregate.
+    //
+    // Iterating only the existing aggregates cannot detect a MISSING one, which is
+    // precisely the state of a freshly-cloned repo: the worktree arrives full of event
+    // files and an empty .aggregates/items. Validation would report "0 aggregates, 0
+    // invalid, valid" and the daemon would never build anything, so every item read
+    // returned "Item does not exist". Walking the event files as well makes a missing
+    // aggregate an invalid one, which is what schedules the rebuild.
+    const itemIds = new Set([
+      ...allItemFiles.keys(),
+      ...aggregates.map(a => a.itemId).filter(Boolean)
+    ]);
+
+    for (const itemId of itemIds) {
+      const validation = await this.validateAggregate(itemId, allItemFiles);
       if (!validation.valid) {
-        invalid.push({
-          itemId: aggregate.itemId,
-          differences: validation.differences
+        invalidItems.push({
+          itemId,
+          errors: validation.differences,
+          differences: validation.differences // legacy alias
         });
       }
     }
 
+    console.log(`[AggregateModel] validateAllAggregates() - ${itemIds.size} items ` +
+      `(${aggregates.length} aggregates on disk), ${invalidItems.length} invalid, ` +
+      `${Date.now() - startTime}ms`);
+
     return {
-      valid: aggregates.length - invalid.length,
-      invalid
+      valid: invalidItems.length === 0,
+      invalidItems,
+      validCount: itemIds.size - invalidItems.length
+    };
+  }
+
+  /**
+   * Shape a built state into the stored aggregate form.
+   *
+   * The derived fields and _meta are part of the persisted contract: validateAggregate
+   * compares _meta.eventFileCount against the real file count, and the browser/CLI read
+   * `creator`, `dependencyCount` and `entryCount`. The incremental path in
+   * _applyIncrementalUpdate must keep these in step or every delta-updated item would
+   * fail validation and trigger a pointless full rebuild on the next start.
+   *
+   * @param {Object} state - Output of buildItemState()
+   * @param {Array} itemFiles - [{filename, data}] the state was built from
+   * @returns {Object} Aggregate ready to persist
+   * @private
+   */
+  _deriveAggregate(state, itemFiles) {
+    let lastEventTimestamp = state.created;
+    for (const file of itemFiles) {
+      const stamp = file.data?.person?.timestamp;
+      if (stamp && stamp > lastEventTimestamp) {
+        lastEventTimestamp = stamp;
+      }
+    }
+
+    return {
+      ...state,
+      creator: state.person, // Rename person to creator for clarity
+
+      // Derived fields
+      dependencyCount: state.dependencies ? state.dependencies.length : 0,
+      entryCount: state.entries ? state.entries.length : 0,
+
+      // Metadata
+      _meta: {
+        lastEventTimestamp,
+        eventFileCount: itemFiles.length,
+        builtAt: new Date().toISOString(),
+        builtFromSHA: null // Set by the daemon when available
+      }
     };
   }
 
   /**
    * Rebuild a single aggregate from its events
    * @param {string} itemId - Item ID to rebuild
+   * @param {Array} [preloadedFiles] - Optional [{filename, data}] already read from disk.
+   *   rebuildAll passes this so a bulk rebuild does ONE directory scan instead of one
+   *   scan per item, which is what made the old path O(items x eventFiles).
    * @returns {Promise<Object|null>} The rebuilt aggregate, or null if item doesn't exist
    */
-  async rebuildAggregate(itemId) {
+  async rebuildAggregate(itemId, preloadedFiles = null) {
     this._ensureInitialized();
 
     const startTime = Date.now();
+    let itemFiles = preloadedFiles;
 
-    // Get all event files from disk (not cache) mentioning this itemId
-    // Match: itemId at start OR .itemId. anywhere in filename
-    const allFiles = await readMatchingFiles(this.baseDirectory, '');
-    const relevantFilenames = allFiles.filter(filename =>
-      filename.startsWith(`${itemId}.`) || filename.includes(`.${itemId}.`)
-    );
+    if (!itemFiles) {
+      // Get all event files from disk (not cache) mentioning this itemId
+      // Match: itemId at start OR .itemId. anywhere in filename
+      const allFiles = await readMatchingFiles(this.baseDirectory, '');
+      const relevantFilenames = allFiles.filter(filename =>
+        filename.startsWith(`${itemId}.`) || filename.includes(`.${itemId}.`)
+      );
 
-    const filesRead = relevantFilenames.length;
+      // Load file data for all relevant files
+      itemFiles = [];
+      for (const filename of relevantFilenames) {
+        const filePath = join(this.baseDirectory, filename);
+        try {
+          const data = await readJsonFile(filePath);
+          itemFiles.push({ filename, data });
+        } catch (error) {
+          console.error(`Error reading file ${filename}:`, error.message);
+        }
+      }
+    }
 
-    if (relevantFilenames.length === 0) {
+    const filesRead = itemFiles.length;
+
+    if (filesRead === 0) {
       // Item doesn't exist, remove aggregate if it exists
       const aggregatePath = this._getAggregatePath(itemId);
       if (existsSync(aggregatePath)) {
@@ -539,18 +643,6 @@ export class AggregateModel {
         console.log(`Removed aggregate for deleted item: ${itemId}`);
       }
       return null;
-    }
-
-    // Load file data for all relevant files
-    const itemFiles = [];
-    for (const filename of relevantFilenames) {
-      const filePath = join(this.baseDirectory, filename);
-      try {
-        const data = await readJsonFile(filePath);
-        itemFiles.push({ filename, data });
-      } catch (error) {
-        console.error(`Error reading file ${filename}:`, error.message);
-      }
     }
 
     // Build state from events
@@ -561,9 +653,11 @@ export class AggregateModel {
       return null;
     }
 
+    const aggregate = this._deriveAggregate(state, itemFiles);
+
     // Write aggregate
     const aggregatePath = this._getAggregatePath(itemId);
-    await writeJsonFile(aggregatePath, state);
+    await writeJsonFile(aggregatePath, aggregate);
 
     const duration = Date.now() - startTime;
     this.metrics.fullRebuilds++;
@@ -575,7 +669,7 @@ export class AggregateModel {
     // Notify listeners
     this._notifyAggregateChanged(itemId);
 
-    return state;
+    return aggregate;
   }
 
   /**
@@ -593,7 +687,10 @@ export class AggregateModel {
     this.rebuildInProgress = true;
 
     try {
-      // Get all item files
+      // ONE scan of the event directory for the whole rebuild. Each item's files are
+      // handed to rebuildAggregate directly; previously every item re-scanned the whole
+      // directory, making a full rebuild quadratic in repo size.
+      const startTime = Date.now();
       const allItemFiles = await getAllItemFiles(this.baseDirectory);
       const itemIds = Array.from(allItemFiles.keys());
 
@@ -606,7 +703,7 @@ export class AggregateModel {
 
       // Rebuild each item
       for (const itemId of itemIds) {
-        await this.rebuildAggregate(itemId);
+        await this.rebuildAggregate(itemId, allItemFiles.get(itemId));
 
         this.rebuildProgress.current++;
 
@@ -626,7 +723,7 @@ export class AggregateModel {
         totalItems: itemIds.length
       });
 
-      console.log(`Rebuilt all ${itemIds.length} aggregates`);
+      console.log(`Rebuilt all ${itemIds.length} aggregates in ${Date.now() - startTime}ms`);
     } finally {
       this.rebuildInProgress = false;
       this.rebuildProgress = { current: 0, total: 0 };
@@ -634,25 +731,15 @@ export class AggregateModel {
   }
 
   /**
-   * Invalidate an aggregate (mark for rebuild)
-   * Currently just rebuilds it immediately
-   * @param {string} itemId - Item ID
-   * @returns {Promise<void>}
-   */
-  async invalidateAggregate(itemId) {
-    this._ensureInitialized();
-    await this.rebuildAggregate(itemId);
-  }
-
-  /**
-   * Get aggregate rebuild status
-   * @returns {Object} Status {inProgress: boolean, current: number, total: number}
+   * Get aggregate rebuild status.
+   * Shape matches what the daemon reads (sparkle_agent.js reads `status.progress`
+   * and serves `{rebuilding, progress}` from /api/aggregateStatus).
+   * @returns {Object} {rebuilding: boolean, progress: {current: number, total: number}}
    */
   getAggregateStatus() {
     return {
-      inProgress: this.rebuildInProgress,
-      current: this.rebuildProgress.current,
-      total: this.rebuildProgress.total
+      rebuilding: this.rebuildInProgress,
+      progress: { ...this.rebuildProgress }
     };
   }
 
@@ -774,59 +861,12 @@ export class AggregateModel {
    * @private
    */
   async _fullRebuild(itemId, startTime, operation) {
-    const rebuildStart = Date.now();
-
-    // Get all event files from disk mentioning this itemId
-    const allFiles = await readMatchingFiles(this.baseDirectory, '');
-    const relevantFilenames = allFiles.filter(filename =>
-      filename.startsWith(`${itemId}.`) || filename.includes(`.${itemId}.`)
-    );
-
-    const filesRead = relevantFilenames.length;
-
-    if (relevantFilenames.length === 0) {
-      const aggregatePath = this._getAggregatePath(itemId);
-      if (existsSync(aggregatePath)) {
-        await unlink(aggregatePath);
-      }
-      return null;
-    }
-
-    // Load file data for all relevant files
-    const itemFiles = [];
-    for (const filename of relevantFilenames) {
-      const filePath = join(this.baseDirectory, filename);
-      try {
-        const data = await readJsonFile(filePath);
-        itemFiles.push({ filename, data });
-      } catch (error) {
-        console.error(`Error reading file ${filename}:`, error.message);
-      }
-    }
-
-    // Build state from events
-    const state = buildItemState(itemFiles, itemId);
-
-    if (!state) {
-      console.error(`Could not build state for item ${itemId}`);
-      return null;
-    }
-
-    // Write aggregate
-    const aggregatePath = this._getAggregatePath(itemId);
-    await writeJsonFile(aggregatePath, state);
-
-    const duration = Date.now() - startTime;
-    this.metrics.fullRebuilds++;
-    this.metrics.totalFilesReadRebuild += filesRead;
-    this.metrics.totalDurationRebuild += duration;
-
-    console.log(`[Aggregate] updateAggregate(${itemId}) - operation: ${operation}, type: full_rebuild, filesRead: ${filesRead}, eventsProcessed: ${filesRead}, duration: ${duration}ms`);
-
-    // Notify listeners
-    this._notifyAggregateChanged(itemId);
-
-    return state;
+    // Delegates to rebuildAggregate so both paths write the identical aggregate shape.
+    // They used to be separate copies, and the copy here omitted creator/_meta/counts —
+    // which meant any incremental update that fell back to a rebuild silently produced a
+    // differently-shaped aggregate from the one rebuildAll produced.
+    console.log(`[Aggregate] updateAggregate(${itemId}) - operation: ${operation}, type: full_rebuild`);
+    return await this.rebuildAggregate(itemId);
   }
 
   /**
@@ -877,6 +917,41 @@ export class AggregateModel {
   }
 
   /**
+   * Re-derive the computed fields and _meta after an incremental update.
+   *
+   * Without this the delta path leaves entryCount/dependencyCount/_meta.eventFileCount at
+   * whatever the last full rebuild wrote. validateAggregate compares _meta.eventFileCount
+   * against the real number of event files on disk, so every delta-updated item would be
+   * reported invalid and the daemon would launch a full rebuild on the next start —
+   * defeating the entire point of applying deltas.
+   *
+   * @param {Object} aggregate - Aggregate being updated (mutated in place)
+   * @param {Object} eventData - The event just applied
+   * @private
+   */
+  _refreshDerived(aggregate, eventData) {
+    aggregate.dependencyCount = aggregate.dependencies ? aggregate.dependencies.length : 0;
+    aggregate.entryCount = aggregate.entries ? aggregate.entries.length : 0;
+
+    const meta = aggregate._meta || {};
+    const stamp = eventData?.person?.timestamp;
+    const lastEventTimestamp =
+      stamp && (!meta.lastEventTimestamp || stamp > meta.lastEventTimestamp)
+        ? stamp
+        : meta.lastEventTimestamp;
+
+    aggregate._meta = {
+      ...meta,
+      // One new event file on disk per affected item. A dependency event names two items
+      // and _extractItemIdsFromFilename returns both, so each gets its own +1 — which is
+      // correct, because the file matches both items' file sets.
+      eventFileCount: (meta.eventFileCount || 0) + 1,
+      lastEventTimestamp,
+      builtAt: new Date().toISOString()
+    };
+  }
+
+  /**
    * Apply an incremental update to an aggregate
    * @private
    */
@@ -886,13 +961,16 @@ export class AggregateModel {
 
     switch (eventType) {
       case 'entry':
-        // Add entry to entries array
-        const timestamp = parts[2]; // itemId.entry.timestamp.random.json
+        // Append to entries. `seq` must match what stateBuilder.getEntries() assigns on a
+        // full rebuild — 1-based position in creation order — or the number shown against
+        // an entry would change depending on whether it arrived via a delta or a rebuild.
+        // Appending is correct because events are applied in chronological order, which is
+        // the same order getEntries sorts by.
         aggregate.entries = aggregate.entries || [];
         aggregate.entries.push({
           text: eventData.text,
-          createdTimestamp: timestamp,
-          person: eventData.person
+          person: eventData.person,
+          seq: aggregate.entries.length + 1
         });
         break;
 
@@ -967,6 +1045,8 @@ export class AggregateModel {
       default:
         throw new Error(`Unknown event type: ${eventType}`);
     }
+
+    this._refreshDerived(aggregate, eventData);
 
     return aggregate;
   }
@@ -1075,16 +1155,17 @@ export class AggregateModel {
     console.log('================================\n');
   }
 
-  // Legacy aliases for backward compatibility
+  // Legacy aliases for backward compatibility.
+  // NOTE: a class body's later definition wins, so an alias must never reuse the name of
+  // a real method above it. There used to be a `validateAllAggregates()` alias here whose
+  // body was `return await this.validateAllAggregates()` — it silently shadowed the real
+  // implementation and recursed until the stack blew. It was unreachable while nothing
+  // called the method; wiring the daemon to this class made it reachable.
   async initializeAggregateStore() {
     return await this.start();
   }
 
   async rebuildAllAggregates(progressCallback = null) {
     return await this.rebuildAll(progressCallback);
-  }
-
-  async validateAllAggregates() {
-    return await this.validateAllAggregates();
   }
 }

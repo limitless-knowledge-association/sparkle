@@ -94,8 +94,10 @@ async function waitForDaemon(timeout = 10000) {
   while (Date.now() - startTime < timeout) {
     if (existsSync(portFilePath)) {
       try {
-        const portData = await readFile(portFilePath, 'utf8');
-        const port = parseInt(portData.trim(), 10);
+        const { readPortFile } = await import('../src/portFile.js');
+        const info = await readPortFile(join(testDir, '.sparkle-worktree/sparkle-data'));
+        if (!info) throw new Error('port file not ready');
+        const port = info.port;
 
         // Verify daemon is responding
         const responding = await checkDaemon(port);

@@ -398,6 +398,7 @@
     import { initializeFilterModal, openFilterModal } from './filter-modal.js';
     import { ItemsCache } from './ItemsCache.js';
     import { TakersCache } from './TakersCache.js';
+    import { registerViewState, applyViewFromUrl } from './savedViews.js';
     // Note: audit-trail.js only exports openAuditTrail (opens in new window, no initialization needed)
 
     // Global configuration instance
@@ -901,6 +902,39 @@
 
       // Add event listener for search text
       document.getElementById('filterText').addEventListener('input', filterAndRenderItems);
+
+      // Saved views: tell the shared module how to capture and restore THIS page's state,
+      // then honour a ?view=<name> in the URL. Registered after the data is loaded so an
+      // applied view can re-render immediately.
+      registerViewState({
+        capture: () => ({
+          filters: { ...activeFilters },
+          search: document.getElementById('filterText').value,
+          sortColumn,
+          sortDirection
+        }),
+        apply: async (state) => {
+          if (state.filters) {
+            activeFilters = { ...activeFilters, ...state.filters };
+          }
+          if (typeof state.search === 'string') {
+            document.getElementById('filterText').value = state.search;
+          }
+          if (typeof state.sortColumn === 'string') {
+            sortColumn = state.sortColumn;
+          }
+          if (state.sortDirection === 'asc' || state.sortDirection === 'desc') {
+            sortDirection = state.sortDirection;
+          }
+          renderFilterBadges();
+          await filterAndRenderItems();
+        }
+      });
+
+      const appliedView = await applyViewFromUrl();
+      if (appliedView) {
+        frontendLog(`init() - Applied saved view "${appliedView}"`);
+      }
 
       // Start polling every 5 seconds
       pollingInterval = setInterval(checkForChanges, 5000);

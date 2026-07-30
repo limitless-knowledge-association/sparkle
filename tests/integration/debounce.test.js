@@ -23,7 +23,7 @@ import {
   getTarballPath,
   startDaemon,
   stopDaemon,
-  startLogServer,
+  startLogServer, stopLogServer,
   createTestId,
   cleanupEnvironment,
   sleep
@@ -63,6 +63,7 @@ describe('Commit-immediately / push-debounced / offline-safe (RED until refactor
   }, 240000);
 
   afterAll(async () => {
+    await stopLogServer(); // open HTTP handle; leaking it hangs isolated runs
     if (ctx.port) await stopDaemon(ctx.port).catch(() => {});
     if (ctx.env) await cleanupEnvironment(ctx.env.testDir);
   }, 60000);

@@ -17,6 +17,7 @@ import {
   startDaemon,
   stopDaemon,
   startLogServer,
+  stopLogServer,
   sleep
 } from '../helpers/test-helpers.js';
 
@@ -95,6 +96,11 @@ describe('Recover Sparkle Integration', () => {
     await mkdir(baseDir, { recursive: true });
     await startLogServer(GLOBAL_TEST_ID, baseDir);
   }, 60000);
+
+  afterAll(async () => {
+    // The log server is an open HTTP handle; leaking it hangs isolated runs.
+    await stopLogServer();
+  }, 30000);
 
   test('detects git reference lock conflict', async () => {
     const env = await setupTestEnv('test-git-ref-lock');

@@ -15,7 +15,7 @@ import { mkdir } from 'fs/promises';
 import http from 'http';
 import {
   createTestEnvironment, installSparkle, initializeSparkle, getTarballPath,
-  startDaemon, stopDaemon, startLogServer, createTestId, cleanupEnvironment
+  startDaemon, stopDaemon, startLogServer, stopLogServer, createTestId, cleanupEnvironment
 } from '../helpers/test-helpers.js';
 
 /**
@@ -86,6 +86,7 @@ describe('Explicit fetch always broadcasts dataUpdated', () => {
   }, 240000);
 
   afterAll(async () => {
+    await stopLogServer(); // open HTTP handle; leaking it hangs isolated runs
     if (ctx.port) await stopDaemon(ctx.port).catch(() => {});
     if (ctx.env) await cleanupEnvironment(ctx.env.testDir);
   }, 60000);

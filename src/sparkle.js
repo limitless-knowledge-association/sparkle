@@ -143,12 +143,11 @@ export async function setProjectConfig(config) {
  * @returns {Promise<string>} Item ID
  */
 export async function createItem(tagline, status = 'incomplete', initialEntry) {
-  const itemId = await itemController.createItem(baseDirectory, tagline, status, initialEntry);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  // The controller applies the event to the aggregate itself (delta path). Passing the
+  // manager here instead of calling rebuildAggregate() afterwards is what avoids
+  // re-reading every event file in the repo just to record one new item.
+  const itemId = await itemController.createItem(
+    baseDirectory, tagline, status, initialEntry, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -195,12 +194,7 @@ export async function getItemDetails(itemId) {
  * @param {string} tagline - New tagline
  */
 export async function alterTagline(itemId, tagline) {
-  await taglineController.alterTagline(baseDirectory, itemId, tagline);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await taglineController.alterTagline(baseDirectory, itemId, tagline, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -214,12 +208,7 @@ export async function alterTagline(itemId, tagline) {
  * @param {string} text - Entry text
  */
 export async function addEntry(itemId, text) {
-  await entryController.addEntry(baseDirectory, itemId, text);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await entryController.addEntry(baseDirectory, itemId, text, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -234,12 +223,7 @@ export async function addEntry(itemId, text) {
  * @param {string} [text=''] - Optional text explanation
  */
 export async function updateStatus(itemId, status, text = '') {
-  await statusController.updateStatus(baseDirectory, itemId, status, text);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await statusController.updateStatus(baseDirectory, itemId, status, text, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -253,13 +237,10 @@ export async function updateStatus(itemId, status, text = '') {
  * @param {string} itemNeeded - Item that is needed
  */
 export async function addDependency(itemNeeding, itemNeeded) {
-  await dependencyController.addDependency(baseDirectory, itemNeeding, itemNeeded);
-
-  // Rebuild BOTH items synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemNeeding);
-    await injectedAggregateManager.rebuildAggregate(itemNeeded);
-  }
+  // One event file names both items; updateAggregateForEvent extracts both IDs from the
+  // filename and updates each aggregate, so a single call covers the pair.
+  await dependencyController.addDependency(
+    baseDirectory, itemNeeding, itemNeeded, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -273,13 +254,8 @@ export async function addDependency(itemNeeding, itemNeeded) {
  * @param {string} itemNeeded - Item that is needed
  */
 export async function removeDependency(itemNeeding, itemNeeded) {
-  await dependencyController.removeDependency(baseDirectory, itemNeeding, itemNeeded);
-
-  // Rebuild BOTH items synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemNeeding);
-    await injectedAggregateManager.rebuildAggregate(itemNeeded);
-  }
+  await dependencyController.removeDependency(
+    baseDirectory, itemNeeding, itemNeeded, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -292,12 +268,7 @@ export async function removeDependency(itemNeeding, itemNeeded) {
  * @param {string} itemId - Item identifier
  */
 export async function addMonitor(itemId) {
-  await monitorController.addMonitor(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await monitorController.addMonitor(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -310,12 +281,7 @@ export async function addMonitor(itemId) {
  * @param {string} itemId - Item identifier
  */
 export async function removeMonitor(itemId) {
-  await monitorController.removeMonitor(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await monitorController.removeMonitor(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -328,12 +294,7 @@ export async function removeMonitor(itemId) {
  * @param {string} itemId - Item identifier
  */
 export async function ignoreItem(itemId) {
-  await ignoredController.ignoreItem(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await ignoredController.ignoreItem(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -346,12 +307,7 @@ export async function ignoreItem(itemId) {
  * @param {string} itemId - Item identifier
  */
 export async function unignoreItem(itemId) {
-  await ignoredController.unignoreItem(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await ignoredController.unignoreItem(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -365,12 +321,7 @@ export async function unignoreItem(itemId) {
  * @param {string} itemId - Item identifier
  */
 export async function takeItem(itemId) {
-  await takenController.takeItem(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await takenController.takeItem(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {
@@ -384,12 +335,7 @@ export async function takeItem(itemId) {
  * @param {string} itemId - Item identifier
  */
 export async function surrenderItem(itemId) {
-  await takenController.surrenderItem(baseDirectory, itemId);
-
-  // Rebuild aggregate synchronously (if aggregate manager is injected)
-  if (injectedAggregateManager) {
-    await injectedAggregateManager.rebuildAggregate(itemId);
-  }
+  await takenController.surrenderItem(baseDirectory, itemId, injectedAggregateManager);
 
   // Schedule git commit (if git scheduler is injected)
   if (injectedGitScheduler) {

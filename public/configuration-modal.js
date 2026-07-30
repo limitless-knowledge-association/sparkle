@@ -211,6 +211,17 @@ class ConfigurationModal {
               </td>
               <td class="current-value cfg-port-current">➜ ${configData.merged.port || '(ephemeral)'}</td>
             </tr>
+            <tr>
+              <td>Daemon Launch Timeout<br><span class="config-help-inline">How long a CLI command waits for a daemon it started (ms). Overridden by SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS.</span></td>
+              <td class="cfg-default">30000</td>
+              <td>
+                <input type="text" class="config-input cfg-launchTimeout-local" placeholder="(none)" disabled title="Launch timeout must be set at project level">
+              </td>
+              <td>
+                <input type="number" class="config-input cfg-launchTimeout-project" placeholder="(none)" min="1000" max="600000">
+              </td>
+              <td class="current-value cfg-launchTimeout-current">➜ ${configData.merged.daemonLaunchTimeoutMs || 30000} ms</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -348,9 +359,12 @@ class ConfigurationModal {
     this.element.querySelector('.cfg-darkMode-project').value =
       darkModeProject === null || darkModeProject === undefined ? '' : darkModeProject ? 'true' : 'false';
 
-    // Set port values (port is project-level only)
+    // Set port and launch-timeout values (both are project-level only)
     const portProject = configData.project.port;
     this.element.querySelector('.cfg-port-project').value = portProject || '';
+
+    const launchTimeoutProject = configData.project.daemonLaunchTimeoutMs;
+    this.element.querySelector('.cfg-launchTimeout-project').value = launchTimeoutProject || '';
 
     // Set filter values
     const filters = ['pending', 'monitor', 'ignored', 'taken'];
@@ -413,6 +427,11 @@ class ConfigurationModal {
     const currentPort = portProject ? parseInt(portProject, 10) : null;
     this.element.querySelector('.cfg-port-current').textContent = `➜ ${currentPort || '(ephemeral)'}`;
 
+    // Update Daemon Launch Timeout current value
+    const launchTimeoutProject = this.element.querySelector('.cfg-launchTimeout-project').value;
+    const currentLaunchTimeout = launchTimeoutProject ? parseInt(launchTimeoutProject, 10) : 30000;
+    this.element.querySelector('.cfg-launchTimeout-current').textContent = `➜ ${currentLaunchTimeout} ms`;
+
     // Update filter current values
     const filters = ['pending', 'monitor', 'ignored', 'taken'];
     filters.forEach(filter => {
@@ -428,6 +447,7 @@ class ConfigurationModal {
       localDarkMode: this.element.querySelector('.cfg-darkMode-local').value,
       projectDarkMode: this.element.querySelector('.cfg-darkMode-project').value,
       projectPort: this.element.querySelector('.cfg-port-project').value,
+      projectLaunchTimeout: this.element.querySelector('.cfg-launchTimeout-project').value,
       localPending: this.element.querySelector('.cfg-filter-pending-local').value,
       projectPending: this.element.querySelector('.cfg-filter-pending-project').value,
       localMonitor: this.element.querySelector('.cfg-filter-monitor-local').value,
@@ -467,6 +487,7 @@ class ConfigurationModal {
     this.element.querySelector('.cfg-darkMode-local').value = this.lastSavedSnapshot.localDarkMode;
     this.element.querySelector('.cfg-darkMode-project').value = this.lastSavedSnapshot.projectDarkMode;
     this.element.querySelector('.cfg-port-project').value = this.lastSavedSnapshot.projectPort;
+    this.element.querySelector('.cfg-launchTimeout-project').value = this.lastSavedSnapshot.projectLaunchTimeout;
     this.element.querySelector('.cfg-filter-pending-local').value = this.lastSavedSnapshot.localPending;
     this.element.querySelector('.cfg-filter-pending-project').value = this.lastSavedSnapshot.projectPending;
     this.element.querySelector('.cfg-filter-monitor-local').value = this.lastSavedSnapshot.localMonitor;
@@ -498,6 +519,7 @@ class ConfigurationModal {
 
       // Collect project config
       const portValue = this.element.querySelector('.cfg-port-project').value;
+      const launchTimeoutValue = this.element.querySelector('.cfg-launchTimeout-project').value;
       const projectConfig = {
         darkMode: this.parseConfigValue(this.element.querySelector('.cfg-darkMode-project').value),
         filters: {
@@ -506,7 +528,8 @@ class ConfigurationModal {
           ignored: this.element.querySelector('.cfg-filter-ignored-project').value || null,
           taken: this.element.querySelector('.cfg-filter-taken-project').value || null
         },
-        port: portValue ? parseInt(portValue, 10) : null
+        port: portValue ? parseInt(portValue, 10) : null,
+        daemonLaunchTimeoutMs: launchTimeoutValue ? parseInt(launchTimeoutValue, 10) : null
       };
 
       // Collect statuses

@@ -13,6 +13,7 @@ import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import http from 'http';
 import { execSync } from 'child_process';
+import { readLivePortFile } from '../src/portFile.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -74,18 +75,16 @@ async function checkExistingDaemon() {
       }
     }
 
-    // Second priority: Check last_port.data (ephemeral port)
-    const portFilePath = join(dataPath, 'last_port.data');
-    if (!existsSync(portFilePath)) {
+    // Second priority: Check last_port.data (ephemeral port).
+    // readLivePortFile drops the file if the daemon that wrote it no longer exists.
+    const info = await readLivePortFile(dataPath);
+    if (!info) {
       return null;
     }
 
-    const portData = await readFile(portFilePath, 'utf8');
-    const port = parseInt(portData.trim(), 10);
-
     // Try to connect to the port
-    const isRunning = await testPort(port);
-    return isRunning ? port : null;
+    const isRunning = await testPort(info.port);
+    return isRunning ? info.port : null;
   } catch (error) {
     return null;
   }

@@ -6,13 +6,20 @@
  * Extracted and adapted from sparkle_client_launch.js
  */
 
-import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getGitRoot } from './gitBranchOps.js';
 import { spawnProcess } from './execUtils.js';
 import { makeApiRequest } from './daemonClient.js';
+import {
+  readPortFile,
+  readLivePortFile,
+  retireLegacyPortFile,
+  deletePortFile,
+  isProcessAlive
+} from './portFile.js';
+import { getDaemonLaunchTimeoutMs } from './configManager.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,25 +32,30 @@ const VERBOSE = process.env.SPARKLE_CLIENT_VERBOSE === 'true';
  * @returns {Promise<number|null>} Port number if daemon is running, null otherwise
  */
 export async function getRunningDaemonPort(dataDir) {
-  const portFile = join(dataDir, 'last_port.data');
+  // readLivePortFile removes the file outright if the recorded PID is gone, so a crashed
+  // daemon stops advertising a port nobody is listening on.
+  const info = await readLivePortFile(dataDir);
 
-  if (!existsSync(portFile)) {
+  if (!info) {
     return null;
   }
 
-  try {
-    const portData = await readFile(portFile, 'utf8');
-    const port = parseInt(portData.trim(), 10);
+  // A legacy bare-integer file was written by an older Sparkle. Retire it (shut that
+  // daemon down, delete the file) and report "no daemon" so the caller launches a
+  // current one, which writes the file in the new format.
+  if (info.legacy) {
+    await retireLegacyPortFile(dataDir, info.port);
+    return null;
+  }
 
-    // Verify daemon is actually responding
-    try {
-      await makeApiRequest(port, '/api/ping');
-      return port;
-    } catch (error) {
-      // Port file exists but daemon not responding
-      return null;
-    }
+  // The PID being alive is not proof the daemon is usable — PIDs get recycled — so the
+  // ping stays the authority for "may I use this port".
+  try {
+    await makeApiRequest(info.port, '/api/ping');
+    return info.port;
   } catch (error) {
+    // Recorded owner is alive but not serving (still starting, or wedged). Leave the file
+    // alone: the PID check owns deletion, and the process still exists.
     return null;
   }
 }
@@ -86,9 +98,11 @@ export async function launchDaemon(gitRoot, dataDir) {
   // Detach the daemon so it continues after CLI exits
   daemon.unref();
 
-  // Wait for daemon to start and write port file
-  // Use 30s timeout for test environments where startup can be slower
-  const port = await waitForDaemonStart(dataDir, 30000);
+  // How long to wait is configurable: SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS beats the project
+  // config's daemonLaunchTimeoutMs, which beats the 30s default. Slow machines, cold npm
+  // caches and CI runners all legitimately need more than a fixed ceiling.
+  const timeout = await getDaemonLaunchTimeoutMs(dataDir);
+  const port = await waitForDaemonStart(dataDir, timeout, daemon.pid);
 
   const totalTime = Date.now() - launchStart;
   if (VERBOSE) console.error(`[CLI] Total daemon launch time: ${totalTime}ms`);
@@ -99,17 +113,16 @@ export async function launchDaemon(gitRoot, dataDir) {
  * Wait for daemon to start by polling for port file
  * @param {string} dataDir - Path to sparkle data directory
  * @param {number} timeout - Timeout in milliseconds
+ * @param {number} [spawnedPid] - PID we spawned, so we can fail fast if it dies
  * @returns {Promise<number>} Port number
  */
-async function waitForDaemonStart(dataDir, timeout = 10000) {
-  const portFile = join(dataDir, 'last_port.data');
+async function waitForDaemonStart(dataDir, timeout, spawnedPid = null) {
   const startTime = Date.now();
   let lastLogTime = startTime;
   let portFileFoundTime = null;
   let checkCount = 0;
 
   if (VERBOSE) console.error(`[CLI] Waiting for daemon to start (timeout: ${timeout}ms)...`);
-  if (VERBOSE) console.error(`[CLI] Port file: ${portFile}`);
 
   while (Date.now() - startTime < timeout) {
     checkCount++;
@@ -121,31 +134,35 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
       lastLogTime = Date.now();
     }
 
-    if (existsSync(portFile)) {
+    const info = await readPortFile(dataDir);
+
+    if (info) {
       if (!portFileFoundTime) {
         portFileFoundTime = Date.now();
         if (VERBOSE) console.error(`[CLI] Port file appeared after ${portFileFoundTime - startTime}ms`);
       }
 
+      // Verify daemon is responding
       try {
-        const portData = await readFile(portFile, 'utf8');
-        const port = parseInt(portData.trim(), 10);
-
-        // Verify daemon is responding
-        try {
-          await makeApiRequest(port, '/api/ping');
-          const totalTime = Date.now() - startTime;
-          if (VERBOSE) console.error(`[CLI] Daemon ready after ${totalTime}ms (${checkCount} checks)`);
-          return port;
-        } catch (error) {
-          // Wait a bit more for daemon to be ready
-          if (VERBOSE && Date.now() - portFileFoundTime > 5000) {
-            console.error(`[CLI] Port file exists but daemon not responding after ${Date.now() - portFileFoundTime}ms`);
-          }
-        }
+        await makeApiRequest(info.port, '/api/ping');
+        const totalTime = Date.now() - startTime;
+        if (VERBOSE) console.error(`[CLI] Daemon ready after ${totalTime}ms (${checkCount} checks)`);
+        return info.port;
       } catch (error) {
-        // File might be being written, try again
+        // Wait a bit more for daemon to be ready
+        if (VERBOSE && Date.now() - portFileFoundTime > 5000) {
+          console.error(`[CLI] Port file exists but daemon not responding after ${Date.now() - portFileFoundTime}ms`);
+        }
       }
+    }
+
+    // If the process we spawned has already exited, no amount of further waiting helps.
+    // Fail immediately rather than burning the whole timeout on a daemon that is gone.
+    if (spawnedPid && !isProcessAlive(spawnedPid)) {
+      await deletePortFile(dataDir);
+      throw new Error(
+        `Daemon process ${spawnedPid} exited during startup. ` +
+        `Check daemon.log in the sparkle data directory.`);
     }
 
     // Sleep 100ms between checks
@@ -159,7 +176,10 @@ async function waitForDaemonStart(dataDir, timeout = 10000) {
   } else {
     console.error(`[CLI] Port file never appeared`);
   }
-  throw new Error('Daemon failed to start within timeout');
+  throw new Error(
+    `Daemon failed to start within ${timeout}ms. ` +
+    `Raise it with SPARKLE_DAEMON_LAUNCH_TIMEOUT_MS or ` +
+    `\`sparkle config set daemonLaunchTimeoutMs <ms>\`.`);
 }
 
 /**

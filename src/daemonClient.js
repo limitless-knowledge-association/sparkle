@@ -9,10 +9,14 @@ import http from 'http';
 import { EventEmitter } from 'events';
 
 /**
- * Make an HTTP API request to the daemon, transparently waiting out the daemon's
- * startup aggregate rebuild. Read endpoints return `503 {rebuilding:true}` while the
- * daemon is rebuilding aggregates; rather than failing (as an AI/script would see it),
- * we retry briefly until the rebuild completes. Non-rebuild errors propagate immediately.
+ * Make an HTTP API request to the daemon.
+ *
+ * A current daemon no longer refuses reads during an aggregate rebuild — it serves the
+ * aggregates that exist and flags the response with `{rebuilding: true}` — so this retry
+ * normally never fires. It is kept because the CLI in one clone can be talking to a daemon
+ * from an OLDER install that still answers `503 {rebuilding:true}`, and silently waiting
+ * that out is far better than surfacing a spurious failure to a script or an AI.
+ * Non-rebuild errors propagate immediately.
  *
  * @param {number} port - Daemon port
  * @param {string} path - API path

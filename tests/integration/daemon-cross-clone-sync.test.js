@@ -21,7 +21,8 @@ import {
   startDaemon,
   stopDaemon,
   createTestId,
-  startLogServer
+  startLogServer,
+  stopLogServer
 } from '../helpers/test-helpers.js';
 import { makeApiRequest, triggerFetchAndWait } from '../../src/daemonClient.js';
 
@@ -57,6 +58,12 @@ describe('Daemon Cross-Clone Synchronization', () => {
     // Get tarball path
     tarballPath = await getTarballPath();
   });
+
+  afterAll(async () => {
+    // The log server is an open HTTP handle; leaving it listening is what made an
+    // isolated run of this file hang after all tests passed.
+    await stopLogServer();
+  }, 30000);
 
   describe('Basic cross-clone data visibility', () => {
     test('daemon in clone2 automatically sees item created in clone1', async () => {
